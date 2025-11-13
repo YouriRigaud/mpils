@@ -13,7 +13,7 @@
 #include <cmath>
 
 class Configuration {
-    protected:
+    private:
         std::vector<Parameter> parameters_; // Liste of the parameters in the configuration
         std::map<std::string, Value> parameter_values_; // Map of parameter names to their values
         double objective_value_ = std::nan(""); // Objective value if computed
