@@ -8,3 +8,9 @@ MPILS is such a tuning algorithm based on the Iterated Local Search (ILS) metahe
 See the [paper](https://doi.org/10.1016/j.cor.2023.106344) for more details.
 
 This repository contains my personal implementation of the MPILS algorithm.
+
+## Doxygen Documentation
+The project provides a Doxygen documentation that can be generated using the provided `Doxyfile`. To generate the documentation, run the following command in the terminal:
+```doxygen Doxyfile```
+This will create the documentation in the `docs` directory.
+Only header files are documented for Doxygen. The source files are not documented but have some comments that should suffice.

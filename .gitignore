@@ -45,3 +45,6 @@
 
 # VSCode settings
 .vscode/
+
+# Doxygen output
+/docs/
