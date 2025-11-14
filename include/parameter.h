@@ -68,6 +68,15 @@ class Value {
          * @return The value converted to a string.
          */
         std::string getString() const;
+
+        /**
+         * @brief Equality operator for Value class.
+         * @param other The other Value to compare with.
+         * @return True if the values are equal, false otherwise.
+         */
+        bool operator==(const Value& other) const {
+            return value_ == other.value_;
+        }
 };
 
 /**
