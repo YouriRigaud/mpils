@@ -31,11 +31,17 @@
  */
 class Configuration {
     private:
-        const std::map<std::string, Value> configuration_; ///< Map of parameter names to their values
-        double objective_;                                 ///< Objective value if evaluated
-        bool evaluated_;                                   ///< Flag indicating if the configuration has been evaluated
+        std::map<std::string, Value> configuration_; ///< Map of parameter names to their values
+        double objective_;                           ///< Objective value if evaluated
+        bool evaluated_;                             ///< Flag indicating if the configuration has been evaluated
     
     public:
+        /**
+         * @brief Default constructor for Configuration.
+         * Creates an unevaluated configuration.
+         */
+        Configuration() : evaluated_(false) {}
+
         /**
          * @brief Construct a Configuration object.
          * @param configuration Map of parameter names to their values.
