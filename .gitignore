@@ -48,3 +48,9 @@
 
 # Doxygen output
 /docs/
+
+# Tuner working directory
+/tuner_working_dir/
+
+# Cplex log files
+*.log

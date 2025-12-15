@@ -16,11 +16,13 @@
 #define TUNER_MEMORY_H
 
 #include "parameter.h"
+#include "logger.h"
 
 #include <map>
 #include <unordered_set>
 #include <stdexcept>
 #include <memory>
+#include <fstream>
 
 /**
  * @brief Class representing a configuration.
@@ -97,6 +99,31 @@ class Configuration {
                 return seed;
             }
         };
+
+        void printConfiguration(std::ostream& out) const {
+            out << "Configuration: ";
+            for (const auto& pair : configuration_) {
+                out << pair.first << "=" << pair.second.getString() << " ";
+            }
+            if (evaluated_) {
+                out << "| Objective: " << objective_;
+            } else {
+                out << "| Objective: Not evaluated";
+            }
+            out << std::endl;
+        }
+
+        void generateConfigFile(const std::string& filename) const {
+            std::ofstream file(filename);
+            if (!file.is_open()) {
+                throw std::runtime_error("Could not open file to write configuration: " + filename);
+            }
+            for (const auto& pair : configuration_) {
+                file << pair.first << " " << pair.second.getString() << std::endl;
+            }
+            file.close();
+        }
+
 };
 
 /**
@@ -108,12 +135,16 @@ class Configuration {
  */
 class TunerMemory {
     private:
+        Logger& logger_;
+
         std::unordered_set<Configuration, Configuration::HashFunction> configurations_;                     ///< Set of all configurations tested
         std::unordered_set<Configuration, Configuration::HashFunction>::const_iterator best_configuration_; ///< Iterator to the best configuration
+
+        Configuration default_configuration_; ///< Default configuration (unevaluated)
     
     public:
         /** @brief Construct a TunerMemory object */
-        TunerMemory(): best_configuration_(configurations_.end()) {}
+        TunerMemory(Logger& logger): logger_(logger), best_configuration_(configurations_.end()) {}
 
         /**
          * @brief Add a configuration to the memory.
@@ -122,7 +153,7 @@ class TunerMemory {
          * @note Only evaluated configurations can be added to the memory.
          * If the configuration already exists and the new one has a better objective, it updates the stored configuration.
          * If it is the best configuration, the best_configuration_ iterator will be updated.
-        */
+         */
         void addConfiguration(const Configuration& config) {
             if (!config.isEvaluated()) {
                 throw std::runtime_error("Cannot add unevaluated configuration to memory.");
@@ -134,8 +165,7 @@ class TunerMemory {
             if (!inserted) {
                 if (config.getObjective() < it->getObjective()) {
                     configurations_.erase(it);
-                    auto [new_it, _] = configurations_.insert(config);
-                    it = new_it;
+                    it = configurations_.insert(config).first;
                 }
             }
 
@@ -143,6 +173,20 @@ class TunerMemory {
             if (best_configuration_ == configurations_.end() || config.getObjective() < best_configuration_->getObjective()) {
                 best_configuration_ = it;
             }
+
+            logger_.debug("Added configuration to memory with objective: ", config.getObjective(), ". Total stored: ", configurations_.size());
+        }
+
+        /**
+         * @brief Add multiple configurations to the memory.
+         * @param configs Vector of configurations to add.
+         * @note This method calls addConfiguration for each configuration in the vector.
+         */
+        void addConfigurations(const std::vector<Configuration>& configs) {
+            for (const auto& config : configs) {
+                addConfiguration(config);
+            }
+            logger_.info("Added ", configs.size(), " configurations to memory. Total stored: ", configurations_.size());
         }
 
         /** @brief Get the configurations stored */
@@ -156,6 +200,16 @@ class TunerMemory {
                 return nullptr;
             }
             return &(*best_configuration_);
+        }
+
+        /** @brief Get the default configuration (unevaluated) */
+        const Configuration& getDefaultConfiguration() const {
+            return default_configuration_;
+        }
+
+        /** @brief Set the default configuration (unevaluated) */
+        void setDefaultConfiguration(const Configuration& config) {
+            default_configuration_ = config;
         }
 };
 

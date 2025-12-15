@@ -87,6 +87,10 @@ class Parameter{
         std::string name_;          ///< Name of the parameter.
         std::vector<Value> values_; ///< All the possible values of the parameter.
         Value default_value_;       ///< Default value of the parameter.
+        bool is_tuned_ = false;    ///< Flag indicating if the parameter is being tuned.
+        bool is_selected_ = false; ///< Flag indicating if the parameter is selected.
+        bool is_discarded_ = false;///< Flag indicating if the parameter is discarded.
+        bool is_residual_ = true; ///< Flag indicating if the parameter is residual.
 
     public:
         /**
@@ -121,6 +125,19 @@ class Parameter{
          * @return The default value.
          */
         Value getDefaultValue() const { return default_value_; }
+
+        // Setters and getters for flags
+        void setIsTuned(bool is_tuned) { is_tuned_ = is_tuned; }
+        bool isTuned() const { return is_tuned_; }
+
+        void setIsSelected(bool is_selected) { is_selected_ = is_selected; }
+        bool isSelected() const { return is_selected_; }
+
+        void setIsDiscarded(bool is_discarded) { is_discarded_ = is_discarded; }
+        bool isDiscarded() const { return is_discarded_; }
+
+        void setIsResidual(bool is_residual) { is_residual_ = is_residual; }
+        bool isResidual() const { return is_residual_; }
 };
 
 #endif // PARAMETER_H
