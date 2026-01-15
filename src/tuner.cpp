@@ -109,6 +109,24 @@ void Tuner::setDefaultConfiguration() {
     logger_.info("Default configuration created with default parameter values.");
 }
 
+void Tuner::writeParametersIdToFile(const Configuration& config, const std::string& filename) {
+    logger_.info("Writing parameter IDs of configuration to file: ", filename);
+
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open file to write parameters ID: " + filename);
+    }
+    file << "Name ID" << std::endl;
+    int index = 1;
+    for (const auto& pair : config.getConfiguration()) {
+        file << pair.first << "\tP" << index << std::endl;
+        index++;
+    }
+    file.close();
+
+    logger_.info("Finished writing parameter IDs to file: ", filename);
+}
+
 void Tuner::setup() {
     logger_.info("Seting up the MPILS tuner");
     setAllParametersFlags();
@@ -135,6 +153,8 @@ void Tuner::setup() {
     //     oss << pair.first << "=" << pair.second.getString() << " ";
     // }
     // logger_.debug(oss.str());
+
+    writeParametersIdToFile(memory_.getDefaultConfiguration(), tuner_dir_ + "parameter_ids.txt");    
 
     logger_.info("Tuner setup complete.");
 }
@@ -179,6 +199,7 @@ void Tuner::run() {
         expansion_.run();
 
         // Pruning phase
+        pruning_.run();
         
         
         logger_.info("Completed iteration ", iteration_);

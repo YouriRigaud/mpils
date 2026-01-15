@@ -1,5 +1,6 @@
 #include "../include/learner.h"
 
+#include <cassert>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -143,7 +144,7 @@ void Learner::remove_duplicates() {
  */
 void Learner::call_learning_model(const std::string& filepath, const std::string& tablepath, Options options) {
     // Step 1: Read parameter definitions (names & IDs), and read dataset and preprocess (duplicates, constant columns)
-    read_parameter_file("cplex/parameters_cplex_id.txt");
+    read_parameter_file("tuner_working_dir/parameter_ids.txt");
     std::cout << "read_parameter_file done" << std::endl;
 
     read_data_file(filepath);
@@ -152,6 +153,8 @@ void Learner::call_learning_model(const std::string& filepath, const std::string
     // Step 2: Perform ANOVA filtering to reduce parameter space
     perform_two_way_anova_filtering(options.strict_p_value, options.loose_p_value);
     std::cout << "perform_two_way_anova_filtering done" << std::endl;
+
+    reset_feature_metadata();
 
     // Step 3 (optional): Latin Hypercube Sampling & CPLEX evaluation
     if (options.use_lhs) {
@@ -166,10 +169,14 @@ void Learner::call_learning_model(const std::string& filepath, const std::string
     if (options.algorithm == "multinomial") {
         train_multinomial_logistic_regression(options.class_count);
         std::cout << "train_multinomial_logistic_regression done" << std::endl;
-        train_multinomial_logistic_regression_with_interaction(options.class_count, options.max_interactions_count);
-        std::cout << "train_multinomial_logistic_regression_with_interaction done" << std::endl;
-    }
-    else {
+
+        if (x_mat.n_cols >= 2) {
+            train_multinomial_logistic_regression_with_interaction(options.class_count, options.max_interactions_count);
+            std::cout << "train_multinomial_logistic_regression_with_interaction done" << std::endl;
+        } else {
+            std::cerr << "[INFO] Skipping interaction model (not enough features)." << std::endl;
+        }
+    } else {
         train_gaussian_bayesian_model();
         std::cout << "train_gaussian_bayesian_model done" << std::endl;
         train_gaussian_bayesian_model_with_interaction(options.max_interactions_count);
@@ -463,7 +470,9 @@ arma::uvec Learner::bin_labels(const arma::vec& y, int class_count) {
 
     for (size_t i = 0; i < class_count - 1; ++i) {
         // Compute threshold at (i+1)/class_count quantile
-        class_thresholds[i] = y_sorted(static_cast<size_t>((1/static_cast<double>(class_count)) * (i + 1) * n));
+        size_t idx = static_cast<size_t>(std::floor((i + 1) * n / static_cast<double>(class_count)));
+        idx = std::min(idx, n - 1);
+        class_thresholds[i] = y_sorted(idx);
     }
 
     arma::uvec classes(n);
@@ -494,6 +503,9 @@ arma::uvec Learner::bin_labels(const arma::vec& y, int class_count) {
  * @return arma::mat  One-hot encoded matrix of shape (#categories-#samples, #samples).
  */
 arma::mat Learner::one_hot_encode(const arma::mat& x_matrix, bool init) {
+    if (init) {
+        one_hot_values.clear();
+    }
     size_t num_samples = x_matrix.n_rows;
     size_t num_params = x_matrix.n_cols;
 
@@ -537,6 +549,9 @@ arma::mat Learner::one_hot_encode(const arma::mat& x_matrix, bool init) {
         col_offset += unique_vals.size() - 1;
     }
 
+    if (init) {
+        assert(x_one_hot.n_rows == one_hot_values.size());
+    }
 
     return x_one_hot;
 }
@@ -551,14 +566,22 @@ arma::mat Learner::one_hot_encode(const arma::mat& x_matrix, bool init) {
  *                                (rows = interactions, cols = samples).
  */
 arma::mat Learner::create_interaction(const arma::mat& x_train, int max_interactions_count) {
+    interaction_pairs.clear();  // IMPORTANT : vide avant de remplir
+
     arma::mat x_train_interactions; // [num_interaction_features x num_samples]
 
     size_t num_features = x_train.n_rows;
     size_t num_samples = x_train.n_cols;
 
+    assert(x_train.n_rows == one_hot_values.size());
+
     // Loop through all pairs of features (no repeats)
     for (size_t i = 0; i < num_features - 1; ++i) {
         for (size_t j = i + 1; j < num_features; ++j) {
+            if (i >= one_hot_values.size() || j >= one_hot_values.size()) {
+                continue;
+            }
+
             // Skip if features come from the same parameter (same parameter_id)
             if (one_hot_values[i][1] == one_hot_values[j][1]) {
                 continue;
@@ -591,16 +614,94 @@ arma::mat Learner::create_interaction(const arma::mat& x_train, int max_interact
  * @param class_count Number of bins (classes) for discretization of labels.
  */
 void Learner::train_multinomial_logistic_regression(int class_count) {
-    // mlpack expects labels as urowvec
+    // Convertir y_vec en classes discrètes
     arma::Row<size_t> y_classes = arma::conv_to<arma::Row<size_t>>::from(bin_labels(y_vec, class_count));
 
-    // Transpose x_matrix because mlpack expects [features x samples].
-    arma::mat x_train = one_hot_encode(x_mat, true); // [num_features x num_samples]
+    // One-hot encoding
+    arma::mat x_train_full = one_hot_encode(x_mat, true); // [features x samples]
+    assert(x_train_full.n_rows == one_hot_values.size());
 
-    arma::Row<size_t> unique_classes = arma::unique(y_classes);
-    size_t num_classes = unique_classes.n_elem;
+    // ===============================
+    // Filtrage automatique des features constantes
+    // ===============================
+    arma::uvec active_feature_indices;
 
-    mlr_model = mlpack::SoftmaxRegression<>(x_train, y_classes, num_classes); // store for later prediction
+    for (size_t i = 0; i < x_train_full.n_rows; ++i)
+    {
+        arma::rowvec feature_row = x_train_full.row(i);
+        arma::vec unique_vals = arma::unique(feature_row.t());
+        if (unique_vals.n_elem > 1)
+        {
+            active_feature_indices.insert_rows(active_feature_indices.n_elem, arma::uvec({i}));
+        }
+    }
+
+    arma::mat x_train = x_train_full.rows(active_feature_indices);
+    std::vector<std::vector<std::string>> active_one_hot_values;
+    for (size_t idx = 0; idx < active_feature_indices.n_elem; ++idx)
+    {
+        active_one_hot_values.push_back(one_hot_values[active_feature_indices[idx]]);
+    }   
+
+    std::cerr << "[DEBUG] x_train.n_rows = " << x_train.n_rows
+              << ", x_train.n_cols = " << x_train.n_cols << std::endl;
+    std::cerr << "[DEBUG] y.n_elem = " << y_classes.n_elem << std::endl;
+
+    size_t num_classes;
+
+    // ======== Ici on ajoute le remapping obligatoire ========
+    arma::Row<size_t> unique = arma::unique(y_classes);
+    std::unordered_map<size_t, size_t> remap;
+    for (size_t i = 0; i < unique.n_elem; ++i)
+        remap[unique[i]] = i;
+
+    for (arma::uword i = 0; i < y_classes.n_elem; ++i)
+        y_classes[i] = remap[y_classes[i]];
+
+    num_classes = unique.n_elem;
+
+    std::cerr << "[DEBUG] Labels remappés = " << y_classes << std::endl;
+    std::cerr << "[DEBUG] NumClasses = " << num_classes << std::endl;
+    // ========================================================
+
+    std::cerr << "[DEBUG] y_classes min/max = "
+          << y_classes.min() << " / "
+          << y_classes.max() << std::endl;
+
+    std::cerr << "[DEBUG] labels = " << y_classes;
+
+
+    assert(y_classes.min() == 0);
+    assert(y_classes.max() < num_classes);
+
+    mlr_model = mlpack::regression::SoftmaxRegression();
+
+    // Vérification avant entraînement
+    assert(x_train.n_cols == y_classes.n_elem);
+    if (x_train.n_rows != active_one_hot_values.size())
+    {
+        std::cerr << "[FATAL] Feature matrix mismatch after filtering: "
+                  << x_train.n_rows << " vs metadata " << active_one_hot_values.size() << std::endl;
+        std::abort();
+    }
+
+    std::cout << "data size = "
+          << x_train.n_rows << " x " << x_train.n_cols << std::endl;
+
+    std::cout << "labels size = "
+          << y_classes.n_elem << std::endl;
+
+    std::cout << "numClasses = "
+          << num_classes << std::endl;
+
+    std::cout << "labels min/max = "
+          << y_classes.min() << " / "
+          << y_classes.max() << std::endl;
+
+    mlr_model.Train(x_train, y_classes, num_classes);
+
+    // Remplacer le mapping one_hot_values par la version filtrée
+    one_hot_values = active_one_hot_values;
 }
 
 /**
@@ -610,18 +711,96 @@ void Learner::train_multinomial_logistic_regression(int class_count) {
  * @param max_interactions_count Maximum number of interaction features to include.
  */
 void Learner::train_multinomial_logistic_regression_with_interaction(int class_count, int max_interactions_count) {
-    // mlpack expects labels as urowvec
+    // Convertir y_vec en classes discrètes
     arma::Row<size_t> y_classes = arma::conv_to<arma::Row<size_t>>::from(bin_labels(y_vec, class_count));
 
-    // Transpose x_matrix because mlpack expects [features x samples].
-    arma::mat x_train = one_hot_encode(x_mat); // [num_features x num_samples]
+    // One-hot encoding complet
+    arma::mat x_train_full = one_hot_encode(x_mat, true); // [features x samples]
+    assert(x_train_full.n_rows == one_hot_values.size());
 
+    // ===============================
+    // Filtrage automatique des features constantes avant interaction
+    // ===============================
+    arma::uvec active_feature_indices;
+
+    for (size_t i = 0; i < x_train_full.n_rows; ++i)
+    {
+        arma::rowvec feature_row = x_train_full.row(i);
+        arma::vec unique_vals = arma::unique(feature_row.t());
+        if (unique_vals.n_elem > 1)
+        {
+            active_feature_indices.insert_rows(active_feature_indices.n_elem, arma::uvec({i}));
+        }
+    }
+
+    arma::mat x_train = x_train_full.rows(active_feature_indices);
+
+    std::vector<std::vector<std::string>> active_one_hot_values;
+    for (size_t idx = 0; idx < active_feature_indices.n_elem; ++idx)
+    {
+        active_one_hot_values.push_back(one_hot_values[active_feature_indices[idx]]);
+    }
+
+    // Mettre à jour one_hot_values pour interaction
+    std::vector<std::vector<std::string>> backup_one_hot_values = one_hot_values;
+    one_hot_values = active_one_hot_values;
+
+    // ===============================
+    // Création des interactions
+    // ===============================
     arma::mat x_train_interactions = create_interaction(x_train, max_interactions_count);
+    
+    if (x_train_interactions.n_rows == 0 || x_train_interactions.n_cols == 0) {
+        std::cerr << "[INFO] No valid interaction features generated. "
+                  << "Skipping interaction model training." << std::endl;
 
-    arma::Row<size_t> unique_classes = arma::unique(y_classes);
-    size_t num_classes = unique_classes.n_elem;
+        // IMPORTANT : restaurer le mapping
+        one_hot_values = backup_one_hot_values;
+        return;
+    }
 
-    mlr_model_with_interaction = mlpack::SoftmaxRegression<>(x_train_interactions, y_classes, num_classes); // store for later prediction
+    assert(x_train_interactions.n_rows == interaction_pairs.size());
+
+    size_t num_classes;
+    // ======== Ici on ajoute le remapping obligatoire ========
+    arma::Row<size_t> unique = arma::unique(y_classes);
+    std::unordered_map<size_t, size_t> remap;
+    for (size_t i = 0; i < unique.n_elem; ++i)
+        remap[unique[i]] = i;
+
+    for (arma::uword i = 0; i < y_classes.n_elem; ++i)
+        y_classes[i] = remap[y_classes[i]];
+
+    num_classes = unique.n_elem;
+
+    std::cerr << "[DEBUG] Labels remappés = " << y_classes << std::endl;
+    std::cerr << "[DEBUG] NumClasses = " << num_classes << std::endl;
+    // ========================================================
+
+
+    assert(y_classes.min() == 0);
+    assert(y_classes.max() < num_classes);
+
+    mlr_model_with_interaction = mlpack::regression::SoftmaxRegression();
+
+    std::cerr << "[DEBUG] X_interactions.n_rows = " << x_train_interactions.n_rows
+              << ", X_interactions.n_cols = " << x_train_interactions.n_cols << std::endl;
+    std::cerr << "[DEBUG] y.n_elem = " << y_classes.n_elem << std::endl;
+
+    // Vérification avant entraînement
+    assert(x_train_interactions.n_cols == y_classes.n_elem);
+    if (x_train_interactions.n_rows != interaction_pairs.size())
+    {
+        std::cerr << "[FATAL] Interaction feature matrix mismatch: "
+                  << x_train_interactions.n_rows << " vs metadata " << interaction_pairs.size() << std::endl;
+        std::abort();
+    }
+
+
+    mlr_model_with_interaction.Train(x_train_interactions, y_classes, num_classes);
+
+    // Restaurer le mapping complet pour référence future
+    one_hot_values = backup_one_hot_values;
 }
 
 /**
@@ -634,7 +813,9 @@ void Learner::train_gaussian_bayesian_model() {
     arma::mat x_train = one_hot_encode(x_mat, true);  // [features, samples]
 
     // By default, mlpack assumes Gaussian distributions for continuous features in NaiveBayesClassifier
-    gbm_model = mlpack::BayesianLinearRegression<>(x_train, y_train);
+    mlpack::regression::BayesianLinearRegression model;
+    model.Train(x_train, y_train);
+    gbm_model = model;
 }
 
 /**
@@ -651,7 +832,9 @@ void Learner::train_gaussian_bayesian_model_with_interaction(int max_interaction
     arma::mat x_train_interactions = create_interaction(x_train, max_interactions_count);
    
     // By default, mlpack assumes Gaussian distributions for continuous features in NaiveBayesClassifier
-    gbm_model_with_interaction = mlpack::BayesianLinearRegression<>(x_train_interactions, y_train);
+    mlpack::regression::BayesianLinearRegression model;
+    model.Train(x_train_interactions, y_train);
+    gbm_model_with_interaction = model;
 }
 
 /**
@@ -661,66 +844,91 @@ void Learner::train_gaussian_bayesian_model_with_interaction(int max_interaction
  * @param algorithm               Name of the algorithm ("bayesian" or "multinomial").
  * @param is_interaction          If true, filter interaction features; else filter base features.
  */
-void Learner::select_significant_coefficients(double significance_threshold, std::string algorithm, const bool& is_interaction) {
+void Learner::select_significant_coefficients( double significance_threshold, const std::string& algorithm, const bool& is_interaction) {
+    assert(!algorithm.empty());
+
     arma::vec coefs;
 
-    // Extract coefficients depending on model type
+    // === Extract coefficients
     if (algorithm == "bayesian") {
-        if (is_interaction) {
-            coefs = gbm_model_with_interaction.Omega();
-        }
-        else {
-            coefs = gbm_model.Omega();
-        }
-    }
-    else {
-        arma::mat params;
-        if (is_interaction) {
-            params = mlr_model_with_interaction.Parameters();
-        }
-        else {
-            params = mlr_model.Parameters();
-        }
+        coefs = is_interaction
+            ? arma::vec(gbm_model_with_interaction.Omega())
+            : arma::vec(gbm_model.Omega());
+    } else {
+        arma::mat params = is_interaction
+            ? arma::mat(mlr_model_with_interaction.Parameters())
+            : arma::mat(mlr_model.Parameters());
 
-        // Use the last row of parameters (corresponds to highest class)
-        arma::rowvec tmp = params.row(params.n_rows - 1);
-        tmp.shed_col(tmp.n_elem - 1);
-        coefs = tmp.t();
-    }
+        if (params.n_rows == 0 || params.n_cols <= 1)
+            return;
 
-    // Compute relative threshold
-    double max_val = coefs.max();
-    double threshold = significance_threshold * max_val;
+        // mlpack: (numClasses - 1) x (numFeatures + 1)
+        // → on transpose
+        arma::mat P = params.t();
 
-    // Identify indices of coefficients above threshold
-    arma::uvec indices = arma::find(coefs >= threshold);
+        // enlever le biais (dernière ligne)
+        arma::mat W = P.rows(0, P.n_rows - 2);
 
-    // Build filtered metadata list
-    std::vector<std::vector<std::string>> filtered_one_hot_values;
-    for (size_t i = 0; i < indices.n_elem; ++i) {
-        size_t idx = indices[i];
-        std::vector<std::string> vec_copy;
+        // DEBUG
+        std::cerr << "[DEBUG] W size = "
+                  << W.n_rows << " x " << W.n_cols << std::endl;
 
-        // Copy corresponding metadata (base or interaction)
-        if (is_interaction) {
-            vec_copy = interaction_pairs[idx];
-        }
-        else {
-            vec_copy = one_hot_values[idx];
-        }
-        vec_copy.push_back(std::to_string(coefs[idx]));
-        vec_copy.push_back(std::to_string(coefs[idx]/max_val));
-        filtered_one_hot_values.push_back(std::move(vec_copy));
+        // importance par feature = max |coef| sur les classes
+        coefs = arma::max(arma::abs(W), 1);
+
+        std::cerr << "[DEBUG] coefs.n_elem = "
+                  << coefs.n_elem << std::endl;
+
+
     }
 
-    // Replace old values with filtered set
-    if (is_interaction) {
-        interaction_pairs = std::move(filtered_one_hot_values);
+    if (coefs.is_empty())
+        return;
+
+    auto& target = is_interaction ? interaction_pairs : one_hot_values;
+
+    // === SAFETY: align sizes
+    size_t safe_size = std::min(static_cast<size_t>(coefs.n_elem), target.size());
+    if (safe_size == 0)
+        return;
+
+    if (coefs.n_elem != target.size()) {
+        std::cerr << "[WARNING] Coefs/metadata size mismatch: "
+                  << coefs.n_elem << " vs " << target.size()
+                  << " (using first " << safe_size << ")" << std::endl;
     }
-    else {
-        one_hot_values = std::move(filtered_one_hot_values);
+
+    arma::vec safe_coefs = coefs.head(safe_size);
+
+    // === Significance filtering
+    double max_abs = arma::abs(safe_coefs).max();
+    if (max_abs <= 0.0)
+        return;
+
+    double threshold = significance_threshold * max_abs;
+    arma::uvec indices = arma::find(arma::abs(safe_coefs) >= threshold);
+
+    if (indices.is_empty())
+        return;
+
+    // === Build filtered metadata
+    std::vector<std::vector<std::string>> filtered;
+    filtered.reserve(indices.n_elem);
+
+    for (arma::uword k = 0; k < indices.n_elem; ++k) {
+        size_t idx = indices[k];
+        if (idx >= safe_size)
+            continue;
+
+        auto entry = target[idx];
+        entry.emplace_back(std::to_string(safe_coefs[idx]));
+        entry.emplace_back(std::to_string(safe_coefs[idx] / max_abs));
+        filtered.emplace_back(std::move(entry));
     }
+
+    target = std::move(filtered);
 }
+
 
 /**
  * @brief Save analysis results to a file.
@@ -752,4 +960,9 @@ void Learner::save_results(const std::string& tablepath, const std::string& file
 
     outfile.close();
     std::cout << "Completed analysis of regression. Results saved at " << basePath << tablepath << filename << "." << std::endl;
+}
+
+void Learner::reset_feature_metadata() {
+    one_hot_values.clear();
+    interaction_pairs.clear();
 }

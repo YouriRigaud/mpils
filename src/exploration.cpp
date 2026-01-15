@@ -75,12 +75,30 @@ std::vector<Configuration> ParamILSEngine::run() {
 
 void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile) {
     // Implementation to write the parameter space to file
+    std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
+
     for (auto& param : parameter_space_.getParameters()) {
         const Value initial_value = initial_configuration_.getConfiguration().at(param.getName());
         myfile << param.getName() << " {";
         if (param.isTuned()) {
             const auto& values = param.getValues();
             for (size_t i = 0; i < values.size(); ++i) {
+                // Check if this value is forbidden
+                bool is_forbidden = false;
+                for (const auto& forbidden_pair : forbidden_values) {
+                    if (forbidden_pair.first == param.getName() && forbidden_pair.second.getString() == values[i].getString()) {
+                        is_forbidden = true;
+                        // if it is the initial value, log a warning
+                        if (values[i] == initial_value) {
+                            logger_.info("Warning: Initial value for parameter ", param.getName(), " is forbidden. So unforbidden it.");
+                            is_forbidden = false;
+                        }
+                        break;
+                    }
+                }
+                if (is_forbidden) {
+                    continue; // Skip forbidden values
+                }
                 myfile << values[i].getString();
                 if (i < values.size() - 1) {
                     myfile << ",";
@@ -95,8 +113,40 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile) {
 
 void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile) {
     // Implementation to write forbidden options to file
-    
-    // Example forbidden options can be added here
+//    std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
+//    for (const auto& pair : forbidden_values) {
+//        myfile << "{" << pair.first << "=" << pair.second.getString() << "}" << std::endl;
+//    }
+    std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
+    // For each forbidden tuple we have to look if the initial configuration contains it, so we do not forbid it
+    Configuration initial_config = initial_configuration_;
+
+    for (const auto& tuple : forbidden_tuples) {
+        bool is_forbidden = true;
+        for (const auto& pair : tuple) {
+            const std::string& param_name = pair.first;
+            const Value& forbidden_value = pair.second;
+            if (initial_config.getConfiguration().at(param_name).getString() == forbidden_value.getString()) {
+                continue;
+            } else {
+                is_forbidden = false;
+                break;
+            }
+        }
+        if (is_forbidden) {
+            logger_.info("Warning: Initial configuration contains a forbidden tuple. So unforbidden it.");
+            continue; // Skip this forbidden tuple
+        }
+
+        myfile << "{";
+        for (size_t i = 0; i < tuple.size(); ++i) {
+            myfile << tuple[i].first << "=" << tuple[i].second.getString();
+            if (i < tuple.size() - 1) {
+                myfile << ", ";
+            }
+        }
+        myfile << "}" << std::endl;
+    }
 }
 
 void ParamILSEngine::writeConditionalCplexOptionsToFile(std::ofstream& myfile) {

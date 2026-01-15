@@ -14,6 +14,8 @@
 class ParameterSpace {
     private:
         std::vector<Parameter> parameters_; ///< List of parameters in the space
+        std::vector<std::pair<std::string, Value>> forbidden_values_; ///< List of forbidden parameter values
+        std::vector<std::vector<std::pair<std::string, Value>>> forbidden_tuples_; ///< List of forbidden parameter tuples
 
     public:
         ParameterSpace(const std::vector<Parameter>& parameters): parameters_(parameters) {}
@@ -66,6 +68,27 @@ class ParameterSpace {
             }
             return discarded_params;
         }
+
+        /** @brief Get the list of forbidden parameter values */
+        std::vector<std::pair<std::string, Value>>& getForbiddenValues() {
+            return forbidden_values_;
+        }
+
+        /** @brief Get the list of forbidden parameter combinations */
+        std::vector<std::vector<std::pair<std::string, Value>>>& getForbiddenTuples() {
+            return forbidden_tuples_;
+        }
+
+        /** @brief Add a forbidden parameter value */
+        void addForbiddenValue(const std::string& param_name, const Value& value) {
+            forbidden_values_.emplace_back(param_name, value);
+        }
+
+        /** @brief Add a forbidden parameter tuple */
+        void addForbiddenTuple(const std::vector<std::pair<std::string, Value>>& tuple) {
+            forbidden_tuples_.push_back(tuple);
+        }
+
 };
 
 #endif // PARAMETER_SPACE_H

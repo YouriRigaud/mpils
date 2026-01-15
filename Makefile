@@ -4,7 +4,7 @@
 # License: GNU GPLv3
 
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -g
+CXXFLAGS = -std=c++17 -Wall -Wextra -g -fno-omit-frame-pointer
 
 INCLUDE_DIRS = -Iinclude
 SRC_DIR = src
@@ -26,7 +26,7 @@ LIB_DIRS = \
     -L$(CPLEX_DIR)/cplex/lib/x86-64_linux/static_pic \
     -L$(CPLEX_DIR)/concert/lib/x86-64_linux/static_pic
 
-LIBS = -lilocplex -lcplex -lconcert -lm -lpthread
+LIBS = -lilocplex -lcplex -lconcert -lm -lpthread -larmadillo
 
 
 

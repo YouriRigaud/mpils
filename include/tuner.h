@@ -12,6 +12,7 @@
 #include "exploration.h"
 #include "parameter_space.h"
 #include "expansion.h"
+#include "pruning.h"
 
 #include <vector>
 #include <string>
@@ -19,6 +20,8 @@
 
 class Tuner {
     private:
+        int iteration_ = 1;                          ///< Current iteration of the tuning process
+
         Logger logger_;
 
         const std::string tuner_dir_;              ///< Directory where the tuner stores its files
@@ -33,8 +36,7 @@ class Tuner {
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
         Expansion expansion_;                      ///< Expansion component
-
-        int iteration_ = 1;                          ///< Current iteration of the tuning process
+        Pruning pruning_;                        ///< Pruning component
 
         /** @brief Print the list of parameters for debugging */
         void printParameters(const std::vector<Parameter>& parameters);
@@ -46,6 +48,8 @@ class Tuner {
         void setDefaultConfiguration();
 
         bool stopConditionMet(); // Check if stopping condition is met
+
+        void writeParametersIdToFile(const Configuration& config, const std::string& filepath); // Write parameter IDs of a configuration to a file
 
     public:
         Tuner(
@@ -71,7 +75,8 @@ class Tuner {
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_),
-            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 5, nb_threads_solver_, cutoff_solver_time_) // Evaluation budget set to 10 as placeholder
+            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 5, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
+            pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 
         void setup(); // Setup the tuner

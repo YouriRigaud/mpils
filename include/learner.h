@@ -7,6 +7,9 @@
 #include <ilcplex/ilocplex.h>
 #include <mlpack.hpp>
 
+#include <mlpack/methods/softmax_regression/softmax_regression.hpp>
+#include <mlpack/methods/bayesian_linear_regression/bayesian_linear_regression.hpp>
+
 struct Options {
     // algorithm can be multinomial, bayesian or mixed
     // multinomial : standard multinomial logistic regression model
@@ -30,11 +33,11 @@ public:
 
     arma::mat lhs_samples_mat;
 
-    mlpack::SoftmaxRegression<> mlr_model;
-    mlpack::SoftmaxRegression<> mlr_model_with_interaction;
+    mlpack::regression::SoftmaxRegression mlr_model;
+    mlpack::regression::SoftmaxRegression mlr_model_with_interaction;
 
-    mlpack::BayesianLinearRegression<> gbm_model;
-    mlpack::BayesianLinearRegression<> gbm_model_with_interaction;
+    mlpack::regression::BayesianLinearRegression gbm_model;
+    mlpack::regression::BayesianLinearRegression gbm_model_with_interaction;
 
     std::vector<std::vector<std::string>> one_hot_values;
 
@@ -50,8 +53,9 @@ public:
     void train_multinomial_logistic_regression_with_interaction(int class_count, int max_interactions_count);
     void train_gaussian_bayesian_model();
     void train_gaussian_bayesian_model_with_interaction(int max_interactions_count);
-    void select_significant_coefficients(double significance_threshold, std::string algorithm, const bool& is_interaction = false);
+    void select_significant_coefficients(double significance_threshold, const std::string& algorithm, const bool& is_interaction = false);
     void save_results(const std::string& tablepath, const std::string& filename, const std::vector<std::vector<std::string>>& results, const std::string& basePath);
+    void reset_feature_metadata();
 
 protected:
     void remove_duplicates();

@@ -26,7 +26,7 @@ int main() {
         "./tuner_working_dir/solver/cplex.log",
         10,      // Number of initial selected parameters
         2,      // Number of threads for the solver
-        4.0   // Cutoff time for the solver
+        2.0   // Cutoff time for the solver
     );
     
     tuner.setup();

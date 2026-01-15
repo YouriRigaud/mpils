@@ -63,10 +63,13 @@ def read_params(paramfile)
 		
 		while line=file.gets
 			next if line =~ /^\s*(#.*)?\n$/ # deal with empty and comment lines
-			line =~ /\{(.*)\}/
-			combo =$1
-			#TODO: implement debugging info in case specified values don't exist.
-			forbidden_combos << combo.split(",").map{|x|x.strip.split("=")} # One entry: "a=1,b=2,c=3" => ["a=1","b=2","c=3"] => [[a,1],[b,2],[c,3]]
+			if line =~ /\{(.*=.*)\}/
+				combo =$1
+				#TODO: implement debugging info in case specified values don't exist.
+				forbidden_combos << combo.split(",").map{|x|x.strip.split("=")} # One entry: "a=1,b=2,c=3" => ["a=1","b=2","c=3"] => [[a,1],[b,2],[c,3]]
+			else
+				puts "WARNING. Forbidden line #{line} not recognized."
+			end
 		end
 
 		combos = 1
@@ -156,8 +159,6 @@ def forbidden(state, forbidden_combos)
 		for assignment in forbidden_combo
 			param, forbidden_value = assignment
 			match = false unless state[param] == forbidden_value
-#			puts "#{param}, #{forbidden_value}"
-#			puts "#{param}, #{state[param]}"
 		end
 		return true if match # a forbidden combo is matched.
 	end

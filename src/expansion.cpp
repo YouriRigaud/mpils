@@ -136,7 +136,7 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
         }
 
         bool toSelect = param_best_objective < best_objective;
-        bool toDiscard = !toSelect && (param_best_objective > best_objective * 1.0); // Discard if significantly worse
+        bool toDiscard = !toSelect && (param_best_objective >= best_objective * 1.0); // Discard if significantly worse
 
         classified_parameters.push_back({param, toSelect, toDiscard});
     }
