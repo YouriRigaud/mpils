@@ -12,8 +12,16 @@
 #include <string>
 #include <fstream>
 
-int main() {
+int main(int argc, char** argv) {
+    // If no arguments, use default instance file
+    std::string instance_file = "./cplex/30n20b8.mps";
+    // If argument provided, use it as instance file
+    if (argc > 1) {
+        instance_file = std::string(argv[1]);
+    }
+
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
+    std::cout << "Tuning instance: " << instance_file << std::endl;
 
     // init a clock to measure total tuning time
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -24,7 +32,7 @@ int main() {
         log_file,
         "./tuner_working_dir/",
         "./cplex/params_12_cpx.txt",
-        "./cplex/30n20b8.mps",
+        instance_file,
         "./cplex/instances.txt",
         "./tuner_working_dir/solver/cplex.log",
         10,      // Number of initial selected parameters

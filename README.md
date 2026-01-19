@@ -9,6 +9,13 @@ See the [paper](https://doi.org/10.1016/j.cor.2023.106344) for more details.
 
 This repository contains my personal implementation of the MPILS algorithm.
 
+## Use the Tuner
+To use the tuner, you need to compile the source code. Look into the `Makefile` for changing compiler options, especially the path to the Cplex library.
+Compile the code using the command: ```make```
+
+You can run the tuner using the command:
+```./build/mpils```
+
 ## Doxygen Documentation
 The project provides a Doxygen documentation that can be generated using the provided `Doxyfile`. To generate the documentation, run the following command in the terminal:
 ```doxygen Doxyfile```
