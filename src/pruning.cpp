@@ -45,11 +45,11 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
 
     logger_.info("Extracting forbidden tuples from memory...");
 
-    double threshold = 0.1;
+    double threshold = 0.5;
 
     std::vector<std::vector<std::pair<std::string, Value>>> forbidden_tuples;
 
-    // Appel du learner
+    // Call the learner
     Options options_learner;
     options_learner.use_lhs = false;
     options_learner.algorithm = "multinomial";
@@ -58,7 +58,7 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
     std::string table_name = "iteration_" + std::to_string(iteration_) + "_";
     learner.call_learning_model(learner_file, table_name, options_learner);
 
-    // Fichiers de sortie
+    // Output files
     std::vector<std::string> output_files = {
         "tuner_working_dir/pruning/output/" + table_name + "1Option.txt",
         "tuner_working_dir/pruning/output/" + table_name + "2Option.txt"
@@ -73,10 +73,10 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
 
         std::string line;
         while (std::getline(file, line)) {
-            // Ignorer les lignes vides
+            // Ignore empty lines
             if (line.empty()) continue;
 
-            // Découper la ligne par '#'
+            // Split the line by '#'
             std::vector<std::string> tokens;
             std::stringstream ss(line);
             std::string token;
@@ -85,25 +85,25 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
             }
 
             try {
-                // Identifier le score à la fin de la ligne (toujours avant le dernier élément ?)
                 double score = 0.0;
-                if (tokens.size() % 4 == 1) {
-                    // Format avec 1 paramètre : Param#ID#Value#Other#Score
+                if (tokens.size() == 5) {
+                    // Format with 1 parameter : Param#ID#Value#Other#Score
                     score = std::stod(tokens[tokens.size() - 1]);
-                } else if (tokens.size() % 6 == 2) {
-                    // Format avec 2 paramètres : Param1#ID1#Value1#Param2#ID2#Value2#Other#Score
+                } else if (tokens.size() == 8) {
+                    // Format with 2 parameters : Param1#ID1#Value1#Param2#ID2#Value2#Other#Score
                     score = std::stod(tokens[tokens.size() - 1]);
                 } else {
-                    // Format non reconnu, ignorer
                     continue;
                 }
 
-                if (score > threshold) {
+                if (score > threshold || tokens.size() != 5) {
+                    // For 1-value tuples, we keep only those with score > threshold
+                    // For 2-value tuples, we keep all
                     std::vector<std::pair<std::string, Value>> tuple;
-                    // Extraire tous les paires Param/Value
+                    // Extract all parameter-value pairs
                     for (size_t i = 0; i + 2 < tokens.size(); i += 3) {
                         const std::string& param_name = tokens[i];
-                        Value val = std::stoi(tokens[i + 2]); // adapter selon le type Value
+                        Value val = std::stoi(tokens[i + 2]);
                         tuple.emplace_back(param_name, val);
                     }
                     forbidden_tuples.push_back(tuple);

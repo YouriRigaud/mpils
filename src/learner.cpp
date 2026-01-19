@@ -167,6 +167,11 @@ void Learner::call_learning_model(const std::string& filepath, const std::string
 
     // Step 4: Train the selected learning model
     if (options.algorithm == "multinomial") {
+        if (x_mat.n_cols == 0) {
+            std::cerr << "[FATAL] No features left after preprocessing. Aborting learning." << std::endl;
+            return;
+        }
+        
         train_multinomial_logistic_regression(options.class_count);
         std::cout << "train_multinomial_logistic_regression done" << std::endl;
 
@@ -290,6 +295,12 @@ void Learner::perform_two_way_anova_filtering(double strict_p_value, double loos
             selected_indices.push_back(i);
         }
     }
+
+    if (selected_indices.empty()) {
+        std::cerr << "[WARNING] ANOVA removed all parameters. Keeping original feature set." << std::endl;
+        return;
+    }
+
 
     // Build new filtered x_mat
     arma::mat new_x(num_samples, selected_indices.size());
