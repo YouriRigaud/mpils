@@ -2,7 +2,7 @@
 
 # Create the working directory if it doesn't exist with all its subdirectories
 WORKING_DIR="./tuner_working_dir"
-mkdir -p "$WORKING_DIR
+mkdir -p "$WORKING_DIR"
 echo "Created working directory: $WORKING_DIR"
 
 # Create subdirectories

@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
         "./tuner_working_dir/solver/cplex.log",
         10,      // Number of initial selected parameters
         2,      // Number of threads for the solver
-        2.0   // Cutoff time for the solver
+        30.0   // Cutoff time for the solver
     );
     
     tuner.setup();
@@ -49,7 +49,10 @@ int main(int argc, char** argv) {
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
 
     std::cout << "Best configuration found:" << std::endl;
+    std::cout << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
+
     tuner.getBestConfiguration().printConfiguration(std::cout);
+    log_file << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
 
     tuner.getBestConfiguration().generateConfigFile("./tuner_working_dir/best_configuration.prm");
     

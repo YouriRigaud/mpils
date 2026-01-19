@@ -33,11 +33,11 @@ public:
 
     arma::mat lhs_samples_mat;
 
-    mlpack::regression::SoftmaxRegression mlr_model;
-    mlpack::regression::SoftmaxRegression mlr_model_with_interaction;
+    mlpack::regression::SoftmaxRegression<arma::mat> mlr_model;
+    mlpack::regression::SoftmaxRegression<arma::mat> mlr_model_with_interaction;
 
-    mlpack::regression::BayesianLinearRegression gbm_model;
-    mlpack::regression::BayesianLinearRegression gbm_model_with_interaction;
+    mlpack::regression::BayesianLinearRegression<arma::mat> gbm_model;
+    mlpack::regression::BayesianLinearRegression<arma::mat> gbm_model_with_interaction;
 
     std::vector<std::vector<std::string>> one_hot_values;
 
