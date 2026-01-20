@@ -85,7 +85,18 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             logger_.info("No best configuration in memory, using default configuration for evaluation.");
             best_config = &memory_.getDefaultConfiguration();
         }
-        for (const auto& value : param.getValues()) {
+	std::vector<Value> test;
+	const auto& values = param.getValues();
+
+	if (values.size() == 1) {
+	    test.push_back(values.front());
+	}
+        else {
+            test.push_back(values.front());
+    	    test.push_back(values.back());
+       }
+
+        for (const auto& value : test) {
             config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
             std::map<std::string, Value> config_map = best_config->getConfiguration();
             config_map.insert_or_assign(param.getName(), value);

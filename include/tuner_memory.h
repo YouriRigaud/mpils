@@ -58,7 +58,9 @@ class Configuration {
         Configuration(
             std::map<std::string, Value> configuration,
             double objective
-        ): configuration_(configuration), objective_(objective), evaluated_(true) {}
+        ): configuration_(configuration), objective_(objective), evaluated_(true) {
+            scaleObjective();
+	}
 
         /** @brief Get the configuration map */
         std::map<std::string, Value> getConfiguration() const { return configuration_; }
@@ -81,6 +83,12 @@ class Configuration {
             objective_ = objective;
             evaluated_ = true;
         }
+
+	void scaleObjective() {
+	    if (objective_ > 100) {
+	        objective_ = 100;
+	    }
+	}
 
         /** @brief Equality operator based on configuration map */
         bool operator==(const Configuration& other) const {

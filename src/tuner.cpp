@@ -160,7 +160,7 @@ void Tuner::setup() {
 }
 
 bool Tuner::stopConditionMet() {
-    if (iteration_ >= 10) {
+    if (iteration_ >= 15) {
         logger_.info("Stopping condition met: reached maximum iterations (", iteration_, ").");
         return true;
     }

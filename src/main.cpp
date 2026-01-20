@@ -14,7 +14,7 @@
 
 int main(int argc, char** argv) {
     // If no arguments, use default instance file
-    std::string instance_file = "./cplex/30n20b8.mps";
+    std::string instance_file = "./cplex/N1.lp";
     // If argument provided, use it as instance file
     if (argc > 1) {
         instance_file = std::string(argv[1]);
@@ -36,8 +36,8 @@ int main(int argc, char** argv) {
         "./cplex/instances.txt",
         "./tuner_working_dir/solver/cplex.log",
         10,      // Number of initial selected parameters
-        2,      // Number of threads for the solver
-        30.0   // Cutoff time for the solver
+        8,      // Number of threads for the solver
+        90.0   // Cutoff time for the solver
     );
     
     tuner.setup();

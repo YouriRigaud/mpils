@@ -37,23 +37,26 @@ int Exploration::selectNumberOfEvaluations() {
     switch (iteration_)
     {
     case 1:
-        return 2 * parameter_space_.getTunedParameters().size();
+        return 2 * parameter_space_.getSelectedParameters().size();
     case 2:
-        return 3 * parameter_space_.getTunedParameters().size();
+        return 3 * parameter_space_.getSelectedParameters().size();
     case 3:
-        return 5 * parameter_space_.getTunedParameters().size();
+        return 5 * parameter_space_.getSelectedParameters().size();
     case 4:
-        return 7 * parameter_space_.getTunedParameters().size();
+        return 7 * parameter_space_.getSelectedParameters().size();
     default:
-        return 9 * parameter_space_.getTunedParameters().size();
+        return 9 * parameter_space_.getSelectedParameters().size();
     }
 }
 
 void Exploration::run() {
     logger_.info("Starting exploration phase...");
+    int nb_evaluations = selectNumberOfEvaluations();
+    if (nb_evaluations > 30) {
+        nb_evaluations = 30;
+    }
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
-    int nb_evaluations = selectNumberOfEvaluations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
 
     setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations[0], parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_));
