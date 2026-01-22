@@ -81,6 +81,7 @@ class Configuration {
                 throw std::runtime_error("Configuration has already been evaluated.");
             }
             objective_ = objective;
+            scaleObjective();
             evaluated_ = true;
         }
 

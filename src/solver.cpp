@@ -43,7 +43,7 @@ void CPLEXSolver::solve() {
         env.error() << "Unknown exception caught." << std::endl;
     }
     env.end();
-    logger_.info("CPLEX solver finished. Gap: " + std::to_string(gap_) + ", Time (s): " + std::to_string(time_sec_));
+    logger_.info("CPLEX solver finished. Gap: " + std::to_string(gap_));
 }
 
 double CPLEXSolver::getObjectiveValue() {

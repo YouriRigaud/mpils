@@ -34,19 +34,26 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
 int Exploration::selectNumberOfEvaluations() {
     // Implementation to select number of evaluations for tuning phase
     logger_.info("Selecting number of evaluations for tuning phase...");
+    int factor;
     switch (iteration_)
     {
     case 1:
-        return 2 * parameter_space_.getSelectedParameters().size();
+        factor = 2;
+        break;
     case 2:
-        return 3 * parameter_space_.getSelectedParameters().size();
+        factor = 3;
+        break;
     case 3:
-        return 5 * parameter_space_.getSelectedParameters().size();
+        factor = 5;
+        break;
     case 4:
-        return 7 * parameter_space_.getSelectedParameters().size();
+        factor = 7;
+        break;
     default:
-        return 9 * parameter_space_.getSelectedParameters().size();
+        factor = 9;
+        break;
     }
+    return factor * (1 + parameter_space_.getSelectedParameters().size());
 }
 
 void Exploration::run() {

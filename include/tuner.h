@@ -75,7 +75,7 @@ class Tuner {
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_),
-            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 10, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
+            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 20, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 

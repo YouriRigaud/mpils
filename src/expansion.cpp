@@ -72,31 +72,33 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     logger_.info("Evaluating expansion parameters...");
     std::vector<EvaluateParameterOutput> evaluation_outputs;
     std::string config_file_path;
+    bool stop_evaluation {false};
 
     for (auto& param_ref : parameters) {
         Parameter& param = param_ref.get();
         logger_.info("Evaluating parameter: ", param.getName());
 
-        // Placeholder: Generate configurations for the parameter
+        // Generate configurations for the parameter
         std::vector<Configuration> generated_configurations;
-        // For each value of the parameter, create a configuration from the best known configuration
         const Configuration* best_config = memory_.getBestConfiguration();
         if (best_config == nullptr) {
             logger_.info("No best configuration in memory, using default configuration for evaluation.");
             best_config = &memory_.getDefaultConfiguration();
         }
-	std::vector<Value> test;
-	const auto& values = param.getValues();
 
-	if (values.size() == 1) {
-	    test.push_back(values.front());
-	}
-        else {
-            test.push_back(values.front());
-    	    test.push_back(values.back());
-       }
+        // This method evaluate only 2 values
+	    std::vector<Value> valueToEvaluate;
+	    const auto& values = param.getValues();
 
-        for (const auto& value : test) {
+	    if (values.size() == 1) {
+	        valueToEvaluate.push_back(values.front());
+	    } else {
+            valueToEvaluate.push_back(values.front());
+    	    valueToEvaluate.push_back(values.back());
+        }
+
+        // For each value of the parameter, create a configuration from the best known configuration
+        for (const auto& value : valueToEvaluate) {
             config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
             std::map<std::string, Value> config_map = best_config->getConfiguration();
             config_map.insert_or_assign(param.getName(), value);
@@ -110,11 +112,21 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             config.setObjective(objective);
 
             generated_configurations.push_back(config);
-            logger_.debug("Generated configuration for parameter ", param.getName(), " with value ", value.getString(), " - Objective: ", objective);
+            logger_.debug("Generated configuration for parameter ", param.getName(), " with value ", value.getString(), " - Objective: ", config.getObjective());
+
+            //TODO: Only to have the same behavior as the previous solver. Will certainly be changed later.
+            if (config.getObjective() < best_config->getObjective()) {
+                stop_evaluation = true;
+            }
         }
         
 
         evaluation_outputs.push_back({param, generated_configurations});
+        
+        //TODO: Only to have the same behavior as the previous solver. Will certainly be changed later.
+        if (stop_evaluation) {
+            break;
+        }
     }
 
     return evaluation_outputs;
@@ -161,12 +173,10 @@ void Expansion::updateParameterFlags(const std::vector<ClassifyParameterOutput>&
         Parameter& param = cp.parameter;
         if (cp.toSelect) {
             param.setIsSelected(true);
-            param.setIsTuned(true);
             param.setIsResidual(false);
             logger_.info("Parameter ", param.getName(), " selected for tuning.");
         } else if (cp.toDiscard) {
             param.setIsDiscarded(true);
-            param.setIsTuned(false);
             param.setIsResidual(false);
             logger_.info("Parameter ", param.getName(), " discarded from tuning.");
         } else {
