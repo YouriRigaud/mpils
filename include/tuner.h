@@ -32,6 +32,7 @@ class Tuner {
         const int nb_initial_selected_parameters_; ///< Number of parameters to select initially
         const int nb_threads_solver_;              ///< Number of threads for the solver
         const double cutoff_solver_time_;          ///< Cutoff time for each solver run
+        const int nb_workers_;                     ///< Number of worker processes for parallel execution
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -62,7 +63,8 @@ class Tuner {
             const std::string& solver_log_file,
             int nb_initial_selected_parameters,
             int nb_threads_solver,
-            double cutoff_solver_time
+            double cutoff_solver_time,
+            int nb_workers_
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -72,9 +74,10 @@ class Tuner {
             nb_initial_selected_parameters_(nb_initial_selected_parameters),
             nb_threads_solver_(nb_threads_solver),
             cutoff_solver_time_(cutoff_solver_time),
+            nb_workers_(nb_workers_),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
             expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 20, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
@@ -93,5 +96,40 @@ class Tuner {
         }
 
 };
+
+#ifdef USE_MPI
+struct WorkerOrder {
+    int step;
+    int iteration;
+};
+
+class Worker {
+    private:
+        int worker_id_;
+        int worker_step_;                     ///< Current step of the worker (0: waiting order, 1: exploration, 2: expansion, 3: finished)
+        int iteration_;                        ///< Current iteration of the tuning process
+
+        std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
+
+        void setLocalSearchWorker(std::unique_ptr<LocalSearchWorker> worker) {
+            local_search_worker_ = std::move(worker);
+        }
+
+        bool stopConditionMet() {
+            return worker_step_ == 3;
+        }
+
+        void receiveOrderFromMaster();
+
+        void runExplorationPhase();
+
+        void runExpansionPhase();
+
+    public:
+        Worker(int worker_id): worker_id_(worker_id), worker_step_(0), iteration_(1) {}
+
+        void run(); // Run the worker process
+};
+#endif // USE_MPI
 
 #endif // TUNER_H

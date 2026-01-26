@@ -6,6 +6,10 @@
 #include "../include/tuner.h"
 #include "../include/parameter.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -207,3 +211,47 @@ void Tuner::run() {
     }
     logger_.info("Tuner run complete.");
 }
+
+#ifdef USE_MPI
+void Worker::run() {
+    std::cout << "Worker " << worker_id_ << " starting." << std::endl;
+    while (true) {
+        receiveOrderFromMaster();
+        if (stopConditionMet()) {
+            break;
+        }
+        if (worker_step_ == 1) {
+            runExplorationPhase();
+        } else if (worker_step_ == 2) {
+            runExpansionPhase();
+        }
+    }
+    std::cout << "Worker " << worker_id_ << " finished." << std::endl;
+}
+
+void Worker::receiveOrderFromMaster() {
+    // Implementation to receive order from master process, this means updating worker_step_ and iteration_
+    // Worker waits two ints from master: worker_step_ and iteration_
+    WorkerOrder order;
+    MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
+    worker_step_ = order.step;
+    iteration_ = order.iteration;
+    std::cout << "Worker " << worker_id_ << " received order for step " << worker_step_ << "." << std::endl;
+}
+
+void Worker::runExplorationPhase() {
+    std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
+    setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_));
+    local_search_worker_->run();
+    MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
+    worker_step_ = 0; // Set to waiting state
+    std::cout << "Worker " << worker_id_ << " completed exploration phase." << std::endl;
+}
+
+void Worker::runExpansionPhase() {
+    std::cout << "Worker " << worker_id_ << " running expansion phase for iteration " << iteration_ << "." << std::endl;
+    // Implementation of expansion phase logic
+    std::cout << "NOT IMPLEMETED YET" << std::endl;
+    std::cout << "Worker " << worker_id_ << " completed expansion phase." << std::endl;
+}
+#endif

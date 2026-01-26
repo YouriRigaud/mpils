@@ -7,14 +7,17 @@
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 #include <iostream>
 #include <string>
 #include <fstream>
 
-int main(int argc, char** argv) {
+void masterProcess(int argc, char** argv, int nb_workers) {
     // If no arguments, use default instance file
-    std::string instance_file = "./cplex/N1.lp";
+    std::string instance_file = "./cplex/30n20b8.mps";
     // If argument provided, use it as instance file
     if (argc > 1) {
         instance_file = std::string(argv[1]);
@@ -36,8 +39,9 @@ int main(int argc, char** argv) {
         "./cplex/instances.txt",
         "./tuner_working_dir/solver/cplex.log",
         10,      // Number of initial selected parameters
-        8,      // Number of threads for the solver
-        90.0   // Cutoff time for the solver
+        2,      // Number of threads for the solver
+        5.0,  // Cutoff time for the solver
+        nb_workers // Number of worker processes (we count the master as a worker)
     );
     
     tuner.setup();
@@ -61,6 +65,34 @@ int main(int argc, char** argv) {
     log_file << "Total tuning time: " << duration << " seconds." << std::endl;
 
     log_file.close();
+}
+
+#ifdef USE_MPI
+void workerProcess(int argc, char** argv, int world_rank) {
+    std::cout << "Worker process " << world_rank << " started." << std::endl;
+    Worker worker(world_rank);
+    worker.run();
+    std::cout << "Worker process " << world_rank << " finished." << std::endl;
+}
+#endif
+
+int main(int argc, char** argv) {
+
+#ifdef USE_MPI
+    MPI_Init(&argc, &argv);
+    int world_rank;
+    int world_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    if (world_rank == 0) {
+        masterProcess(argc, argv, world_size);
+    } else {
+        workerProcess(argc, argv, world_rank);
+    }
+    MPI_Finalize();
+#else
+    masterProcess(argc, argv, 1);
+#endif
 
     return 0;
 }
