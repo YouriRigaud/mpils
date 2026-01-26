@@ -28,7 +28,7 @@ datetime2 = t.strftime("%Y-%m-%d_%H:%M:%S") # YYYY-MM-DD_HH:MM:SS added by Youri
 outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-#{datetime2}"
 #logfile = "/Users/ilyashimmich/Documents/POSTDOC/projets_DLP/article/CODE/paramils2.3.8-source/example_cplex/log_file/cplex.log"
 #logfile = "./example_cplex/log_file/cplex_#{log_inst_name}.log"
-logfile = "tuner_working_dir/solver/cplex.log"
+logfile = "tuner_working_dir/solver/cplex.log_worker_0"
 #logfile = "/tmp/trace_files"
 
 obj_lower_bound = false
@@ -60,7 +60,8 @@ end
 
 
 if mpi_run
-	logfile = "/tmp/MLILS_youri/log_files/cplex_#{log_inst_name}_process_#{process_rank}.log"
+	logfile = "tuner_working_dir/solver/cplex.log_worker_#{process_rank}"
+	outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-worker-#{process_rank}-#{datetime2}"
 end
 
 #=== Change to however you call CPLEX locally.
