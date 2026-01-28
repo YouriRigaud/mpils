@@ -37,7 +37,19 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
     }
     //Todo: implementation is for test only, after use random configurations or other strategies
     while (initial_configurations.size() < static_cast<size_t>(nb_workers_)) {
-        initial_configurations.push_back(initial_configurations.back());
+        // add a random configuration, random only on parameter that are tuned, default value for others
+        std::map<std::string, Value> config_map;
+        for (const auto& param : parameter_space_.getParameters()) {
+            if (param.isTuned()) {
+                // select a random value from the parameter's possible values
+                const auto& values = param.getValues();
+                size_t random_index = rand() % values.size();
+                config_map.insert_or_assign(param.getName(), values[random_index]);
+            } else {
+                config_map.insert_or_assign(param.getName(), param.getDefaultValue());
+            }
+        }
+        initial_configurations.push_back(Configuration(config_map));
     }
     return initial_configurations;
 }
