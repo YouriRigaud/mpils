@@ -78,7 +78,7 @@ class Tuner {
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
-            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 20, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
+            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 5, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 
@@ -108,11 +108,20 @@ class Worker {
         int worker_id_;
         int worker_step_;                     ///< Current step of the worker (0: waiting order, 1: exploration, 2: expansion, 3: finished)
         int iteration_;                        ///< Current iteration of the tuning process
+        std::string instance_file_;
+        std::string solver_log_file_;
+        int nb_threads_solver_;
+        double cutoff_solver_time_;
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
+        std::unique_ptr<ExpansionWorker> expansion_worker_ = nullptr;
 
         void setLocalSearchWorker(std::unique_ptr<LocalSearchWorker> worker) {
             local_search_worker_ = std::move(worker);
+        }
+
+        void setExpansionWorker(std::unique_ptr<ExpansionWorker> worker) {
+            expansion_worker_ = std::move(worker);
         }
 
         bool stopConditionMet() {
@@ -126,7 +135,15 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id): worker_id_(worker_id), worker_step_(0), iteration_(1) {}
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time)
+            : worker_id_(worker_id),
+              worker_step_(0),
+              iteration_(1),
+              instance_file_(instance_file),
+              solver_log_file_(solver_log_file),
+              nb_threads_solver_(nb_threads_solver),
+              cutoff_solver_time_(cutoff_solver_time)
+        {}
 
         void run(); // Run the worker process
 };

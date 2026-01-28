@@ -251,7 +251,10 @@ void Worker::runExplorationPhase() {
 void Worker::runExpansionPhase() {
     std::cout << "Worker " << worker_id_ << " running expansion phase for iteration " << iteration_ << "." << std::endl;
     // Implementation of expansion phase logic
-    std::cout << "NOT IMPLEMETED YET" << std::endl;
+    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_));
+    expansion_worker_->run();
+    MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
+    worker_step_ = 0; // Set to waiting state
     std::cout << "Worker " << worker_id_ << " completed expansion phase." << std::endl;
 }
 #endif

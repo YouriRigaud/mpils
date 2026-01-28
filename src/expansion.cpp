@@ -5,6 +5,11 @@
 
 #include "../include/expansion.h"
 #include "../include/solver.h"
+#include "../include/tuner.h"
+
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 #include <algorithm>
 
@@ -20,7 +25,16 @@ void Expansion::run() {
 
     const std::vector<CreateConfigurationsOutput> configuration_files = createConfigurationsFiles(expansion_parameters);
 
+#ifdef USE_MPI
+    launchExpansionWorkers();
+#endif
+
     const std::vector<EvaluateParameterOutput> evaluation_results = evaluateParameters(configuration_files);
+
+#ifdef USE_MPI
+    waitExpansionWorkers();
+#endif
+
     logger_.info("Evaluated expansion parameters: ", evaluation_results.size());
 
     const std::vector<ClassifyParameterOutput> classified_parameters = classifyParameters(evaluation_results);
@@ -132,20 +146,41 @@ void addToEvaluateParameters(Parameter& param, const Configuration& config, doub
 const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files_outputs) {
     logger_.info("Evaluating expansion parameters...");
     std::vector<EvaluateParameterOutput> evaluation_outputs;
-    bool stop_evaluation {false};
-    const Configuration* best_config = memory_.getBestConfiguration();
-    if (best_config == nullptr) {
-        logger_.info("No best configuration in memory, using default configuration for evaluation.");
-        best_config = &memory_.getDefaultConfiguration();
+    std::vector<std::pair<int, std::string>> configs_to_evaluate; // Pair of (config_id, config_file_path)
+    configs_to_evaluate.reserve(configuration_files_outputs.size());
+    for (size_t i = 0; i < configuration_files_outputs.size(); ++i) {
+        configs_to_evaluate.emplace_back(i, configuration_files_outputs[i].config_file_path);
     }
-
-    for (auto& create_output : configuration_files_outputs) {
-        Parameter& param = create_output.parameter;
-        const std::string& config_file_path = create_output.config_file_path;
-
-        logger_.info("Evaluating parameter: ", param.getName());
-
-        std::vector<Configuration> evaluated_configurations;
+#ifdef USE_MPI
+    // Split configs_to_evaluate between master and workers
+    int nb_workers = 1; // Default to 1 for non-MPI
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
+    int configs_per_worker = configs_to_evaluate.size() / nb_workers;
+    int remainder = configs_to_evaluate.size() % nb_workers;
+    // Master evaluates its share
+    std::vector<std::pair<int, std::string>> master_configs_to_evaluate(configs_to_evaluate.begin(), configs_to_evaluate.begin() + configs_per_worker + (remainder > 0 ? 1 : 0));
+    // Send configs to workers
+    for (int worker_id = 1; worker_id < nb_workers; ++worker_id) {
+        int start_index = worker_id * configs_per_worker + std::min(worker_id, remainder);
+        int end_index = start_index + configs_per_worker + (worker_id < remainder ? 1 : 0); // Send a remainder config if still at least one left
+        int num_configs = end_index - start_index;
+        MPI_Send(&num_configs, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD);
+        for (int i = start_index; i < end_index; ++i) {
+            int config_id = configs_to_evaluate[i].first;
+            const std::string& config_file_path = configs_to_evaluate[i].second;
+            MPI_Send(&config_id, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD);
+            int path_length = config_file_path.size();
+            MPI_Send(&path_length, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD);
+            MPI_Send(config_file_path.c_str(), path_length, MPI_CHAR, worker_id, 0, MPI_COMM_WORLD);
+        }
+    }
+#else
+    std::vector<std::pair<int, std::string>> master_configs_to_evaluate = configs_to_evaluate;
+#endif
+    // Master evaluates its configurations
+    for (const auto& config_pair : master_configs_to_evaluate) {
+        int config_id = config_pair.first;
+        const std::string& config_file_path = config_pair.second;
 
         CPLEXSolver solver(
             logger_,
@@ -159,19 +194,26 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         solver.solve();
         double objective_value = solver.getObjectiveValue();
 
-        addToEvaluateParameters(param, create_output.configuration, objective_value, evaluation_outputs);
-        std::string evaluated_value = create_output.configuration.getConfiguration().at(param.getName()).getString();
-        logger_.info("Evaluated configuration for parameter ", param.getName(), " with value: ", evaluated_value, " with objective: ", objective_value);
-    
-        if (objective_value < best_config->getObjective()) {
-            logger_.info("New best configuration found with objective: ", objective_value);
-            stop_evaluation = true;
-        }
+        const auto& create_output = configuration_files_outputs[config_id];
+        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluation_outputs);
+    }
+#ifdef USE_MPI
+    // Receive results from workers
+    for (int worker_id = 1; worker_id < nb_workers; ++worker_id) {
+        MPI_Status status;
+        int num_results;
+        MPI_Recv(&num_results, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
+        for (int i = 0; i < num_results; ++i) {
+            int config_id;
+            double objective_value;
+            MPI_Recv(&config_id, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
+            MPI_Recv(&objective_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
 
-        if (stop_evaluation) {
-            break;
+            const auto& create_output = configuration_files_outputs[config_id];
+            addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluation_outputs);
         }
     }
+#endif
 
     return evaluation_outputs;
 }
@@ -228,3 +270,86 @@ void Expansion::updateParameterFlags(const std::vector<ClassifyParameterOutput>&
         }
     }
 }
+
+#ifdef USE_MPI
+void ExpansionWorker::run() {
+    std::cout << "Expansion Worker " << worker_id_ << " starting expansion for iteration " << iteration_ << "." << std::endl;
+    receiveConfigsToEvaluateFromMaster();
+    evaluateConfigurations();
+    sendConfigsResultToMaster();
+    std::cout << "Expansion Worker " << worker_id_ << " completed expansion." << std::endl;
+}
+
+void ExpansionWorker::receiveConfigsToEvaluateFromMaster() {
+    // Implementation to receive configurations to evaluate from master
+    MPI_Status status;
+    int num_configs;
+    MPI_Recv(&num_configs, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+
+    for (int i = 0; i < num_configs; ++i) {
+        int config_id;
+        int path_length;
+        MPI_Recv(&config_id, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        MPI_Recv(&path_length, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
+        std::vector<char> path_buffer(path_length);
+        MPI_Recv(path_buffer.data(), path_length, MPI_CHAR, 0, 0, MPI_COMM_WORLD, &status);
+        std::string config_file_path(path_buffer.begin(), path_buffer.end());
+        configs_to_evaluate_.emplace_back(config_id, config_file_path);
+    }
+}
+
+void ExpansionWorker::evaluateConfigurations() {
+    Logger logger(Verbosity::Normal, std::cout);
+    for (const auto& config_pair : configs_to_evaluate_) {
+        int config_id = config_pair.first;
+        const std::string& config_file_path = config_pair.second;
+
+        CPLEXSolver solver(
+            logger,
+            instance_file_,
+            config_file_path,
+            solver_log_file_,
+            nb_threads_solver_,
+            cutoff_solver_time_
+        );
+
+        solver.solve();
+        double objective_value = solver.getObjectiveValue();
+
+        evaluation_results_.emplace_back(config_id, objective_value);
+    }
+}
+
+void ExpansionWorker::sendConfigsResultToMaster() {
+    // Implementation to send evaluated configurations results back to master
+    int num_results = evaluation_results_.size();
+    MPI_Send(&num_results, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+    for (const auto& result_pair : evaluation_results_) {
+        int config_id = result_pair.first;
+        double objective_value = result_pair.second;
+        MPI_Send(&config_id, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(&objective_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    }
+}
+#endif
+
+#ifdef USE_MPI
+void Expansion::launchExpansionWorkers() {
+    logger_.info("Launching Expansion Workers via MPI...");
+    // Implementation to launch expansion workers using MPI
+    // Broadcast to give all workers worker_step = 2 and iteration_
+    WorkerOrder order;
+    order.step = 2; // expansion step
+    order.iteration = iteration_;
+    MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
+    logger_.info("Expansion Workers launched.");
+}
+
+void Expansion::waitExpansionWorkers() {
+    logger_.info("Waiting for Expansion Workers via MPI...");
+    // Implementation to wait for expansion workers using MPI
+    MPI_Barrier(MPI_COMM_WORLD);
+    logger_.info("Expansion Workers have completed.");
+}
+#endif
