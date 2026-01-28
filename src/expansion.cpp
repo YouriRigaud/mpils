@@ -6,6 +6,8 @@
 #include "../include/expansion.h"
 #include "../include/solver.h"
 
+#include <algorithm>
+
 void Expansion::run() {
     logger_.info("Starting expansion phase...");
 
@@ -16,7 +18,9 @@ void Expansion::run() {
     }
     logger_.info("Selected expansion parameters: ", expansion_parameters.size());
 
-    const std::vector<EvaluateParameterOutput> evaluation_results = evaluateParameters(expansion_parameters);
+    const std::vector<CreateConfigurationsOutput> configuration_files = createConfigurationsFiles(expansion_parameters);
+
+    const std::vector<EvaluateParameterOutput> evaluation_results = evaluateParameters(configuration_files);
     logger_.info("Evaluated expansion parameters: ", evaluation_results.size());
 
     const std::vector<ClassifyParameterOutput> classified_parameters = classifyParameters(evaluation_results);
@@ -68,21 +72,18 @@ const std::vector<std::reference_wrapper<Parameter>> Expansion::selectParameters
     return selected_parameters;
 }
 
-const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const std::vector<std::reference_wrapper<Parameter>>& parameters) {
-    logger_.info("Evaluating expansion parameters...");
-    std::vector<EvaluateParameterOutput> evaluation_outputs;
-    std::string config_file_path;
-    bool stop_evaluation {false};
+const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters) {
+    logger_.info("Creating configuration files for expansion parameters...");
+    std::vector<CreateConfigurationsOutput> configuration_files_outputs;
 
     for (auto& param_ref : parameters) {
         Parameter& param = param_ref.get();
-        logger_.info("Evaluating parameter: ", param.getName());
+        logger_.info("Creating configurations for parameter: ", param.getName());
 
         // Generate configurations for the parameter
-        std::vector<Configuration> generated_configurations;
         const Configuration* best_config = memory_.getBestConfiguration();
         if (best_config == nullptr) {
-            logger_.info("No best configuration in memory, using default configuration for evaluation.");
+            logger_.info("No best configuration in memory, using default configuration for expansion.");
             best_config = &memory_.getDefaultConfiguration();
         }
 
@@ -97,33 +98,76 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     	    valueToEvaluate.push_back(values.back());
         }
 
-        // For each value of the parameter, create a configuration from the best known configuration
         for (const auto& value : valueToEvaluate) {
-            config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
+            std::string config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
             std::map<std::string, Value> config_map = best_config->getConfiguration();
             config_map.insert_or_assign(param.getName(), value);
 
             Configuration config(config_map);
             config.generateConfigFile(config_file_path);
-
-            CPLEXSolver solver(logger_, instance_file_, config_file_path, solver_log_file_, nb_threads_solver_, cutoff_solver_time_);
-            solver.solve();
-            double objective = solver.getObjectiveValue();
-            config.setObjective(objective);
-
-            generated_configurations.push_back(config);
-            logger_.debug("Generated configuration for parameter ", param.getName(), " with value ", value.getString(), " - Objective: ", config.getObjective());
-
-            //TODO: Only to have the same behavior as the previous solver. Will certainly be changed later.
-            if (config.getObjective() < best_config->getObjective()) {
-                stop_evaluation = true;
-            }
+            
+            configuration_files_outputs.push_back({param, config, config_file_path});
+            logger_.debug("Created configuration file for parameter ", param.getName(), " with value ", value.getString(), " at ", config_file_path);
         }
-        
+    }
+    logger_.info("Created ", configuration_files_outputs.size(), " configuration files for expansion phase at iteration ", iteration_, ".");
+    return configuration_files_outputs;
+}
 
-        evaluation_outputs.push_back({param, generated_configurations});
-        
-        //TODO: Only to have the same behavior as the previous solver. Will certainly be changed later.
+void addToEvaluateParameters(Parameter& param, const Configuration& config, double objective_value, std::vector<EvaluateParameterOutput>& evaluation_outputs) {
+    // Find or create EvaluateParameterOutput for the parameter
+    auto it = std::find_if(evaluation_outputs.begin(), evaluation_outputs.end(),
+                           [&param](const EvaluateParameterOutput& epo) { return &epo.parameter == &param; });
+    if (it == evaluation_outputs.end()) {
+        evaluation_outputs.push_back({param, {}});
+        it = std::prev(evaluation_outputs.end());
+    }
+
+    // Add the evaluated configuration
+    Configuration evaluated_config = config;
+    evaluated_config.setObjective(objective_value);
+    it->configurations.push_back(evaluated_config);
+}
+
+const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files_outputs) {
+    logger_.info("Evaluating expansion parameters...");
+    std::vector<EvaluateParameterOutput> evaluation_outputs;
+    bool stop_evaluation {false};
+    const Configuration* best_config = memory_.getBestConfiguration();
+    if (best_config == nullptr) {
+        logger_.info("No best configuration in memory, using default configuration for evaluation.");
+        best_config = &memory_.getDefaultConfiguration();
+    }
+
+    for (auto& create_output : configuration_files_outputs) {
+        Parameter& param = create_output.parameter;
+        const std::string& config_file_path = create_output.config_file_path;
+
+        logger_.info("Evaluating parameter: ", param.getName());
+
+        std::vector<Configuration> evaluated_configurations;
+
+        CPLEXSolver solver(
+            logger_,
+            instance_file_,
+            config_file_path,
+            solver_log_file_,
+            nb_threads_solver_,
+            cutoff_solver_time_
+        );
+
+        solver.solve();
+        double objective_value = solver.getObjectiveValue();
+
+        addToEvaluateParameters(param, create_output.configuration, objective_value, evaluation_outputs);
+        std::string evaluated_value = create_output.configuration.getConfiguration().at(param.getName()).getString();
+        logger_.info("Evaluated configuration for parameter ", param.getName(), " with value: ", evaluated_value, " with objective: ", objective_value);
+    
+        if (objective_value < best_config->getObjective()) {
+            logger_.info("New best configuration found with objective: ", objective_value);
+            stop_evaluation = true;
+        }
+
         if (stop_evaluation) {
             break;
         }

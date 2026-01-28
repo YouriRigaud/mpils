@@ -12,6 +12,12 @@
 
 #include <string>
 
+struct CreateConfigurationsOutput {
+    Parameter& parameter;
+    Configuration configuration;
+    std::string config_file_path;
+};
+
 struct EvaluateParameterOutput {
     Parameter& parameter;
     std::vector<Configuration> configurations;
@@ -39,7 +45,9 @@ class Expansion {
 
         const std::vector<std::reference_wrapper<Parameter>> selectParameters();
 
-        const std::vector<EvaluateParameterOutput> evaluateParameters(const std::vector<std::reference_wrapper<Parameter>>& parameters);
+        const std::vector<CreateConfigurationsOutput> createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters);
+
+        const std::vector<EvaluateParameterOutput> evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files);
 
         const std::vector<ClassifyParameterOutput> classifyParameters(const std::vector<EvaluateParameterOutput>& evaluation_results);
 
