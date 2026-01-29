@@ -52,6 +52,10 @@ class Tuner {
 
         void writeParametersIdToFile(const Configuration& config, const std::string& filepath); // Write parameter IDs of a configuration to a file
 
+#ifdef USE_MPI
+        void sendStopOrderToWorkers();
+#endif
+
     public:
         Tuner(
             Verbosity level,

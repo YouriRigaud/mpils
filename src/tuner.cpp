@@ -196,6 +196,9 @@ void Tuner::run() {
         
         // Check stopping condition
         if (stopConditionMet()) {
+#ifdef USE_MPI
+            sendStopOrderToWorkers();
+#endif
             break;
         }
 
@@ -213,6 +216,15 @@ void Tuner::run() {
 }
 
 #ifdef USE_MPI
+void Tuner::sendStopOrderToWorkers() {
+    logger_.info("Sending stop order to all worker processes.");
+    WorkerOrder stop_order;
+    stop_order.step = 3; // 3 indicates stop
+    stop_order.iteration = iteration_;
+    MPI_Bcast(&stop_order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
+    logger_.info("Stop order sent to all worker processes.");
+}
+
 void Worker::run() {
     std::cout << "Worker " << worker_id_ << " starting." << std::endl;
     while (true) {
