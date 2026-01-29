@@ -6,6 +6,7 @@
 #include "../include/parameter.h"
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
+#include "../include/globaltimer.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -43,7 +44,7 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
 
     // init a clock to measure total tuning time
-    auto start_time = std::chrono::high_resolution_clock::now();
+    GlobalTimer::start();
 
     std::ofstream log_file("./tuner_working_dir/tuner.log");
     Tuner tuner(
@@ -64,10 +65,6 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
 
     tuner.run();
 
-    // Calculate and print total tuning time
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
-
     std::cout << "Best configuration found:" << std::endl;
     std::cout << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
 
@@ -76,9 +73,9 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
 
     tuner.getBestConfiguration().generateConfigFile("./tuner_working_dir/best_configuration.prm");
     
-    std::cout << "Total tuning time: " << duration << " seconds." << std::endl;
+    std::cout << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
 
-    log_file << "Total tuning time: " << duration << " seconds." << std::endl;
+    log_file << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
 
     log_file.close();
 }

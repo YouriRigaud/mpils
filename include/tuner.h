@@ -64,7 +64,7 @@ class Tuner {
             int nb_initial_selected_parameters,
             int nb_threads_solver,
             double cutoff_solver_time,
-            int nb_workers_
+            int nb_workers
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -74,7 +74,7 @@ class Tuner {
             nb_initial_selected_parameters_(nb_initial_selected_parameters),
             nb_threads_solver_(nb_threads_solver),
             cutoff_solver_time_(cutoff_solver_time),
-            nb_workers_(nb_workers_),
+            nb_workers_(nb_workers),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
