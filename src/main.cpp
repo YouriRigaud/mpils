@@ -38,10 +38,19 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
     }
 }
 
+void writeParamILSInstanceFile(const std::string& filepath, const std::string& instance_file) {
+    std::ofstream myfile;
+    myfile.open(filepath);
+    myfile << instance_file << std::endl;
+    myfile.close();
+}
+
 void masterProcess(int argc, char** argv, struct TunerOptions options) {
 
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
+
+    writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
 
     // init a clock to measure total tuning time
     GlobalTimer::start();
