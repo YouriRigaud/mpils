@@ -17,6 +17,7 @@
 
 #include "parameter.h"
 #include "logger.h"
+#include "globaltimer.h"
 
 #include <map>
 #include <unordered_set>
@@ -36,6 +37,7 @@ class Configuration {
         std::map<std::string, Value> configuration_; ///< Map of parameter names to their values
         double objective_;                           ///< Objective value if evaluated
         bool evaluated_;                             ///< Flag indicating if the configuration has been evaluated
+        int time_evaluated_;                         ///< Time when the configuration was evaluated (in seconds since tuning started)
     
     public:
         /**
@@ -60,13 +62,17 @@ class Configuration {
             double objective
         ): configuration_(configuration), objective_(objective), evaluated_(true) {
             scaleObjective();
-	}
+            time_evaluated_ = GlobalTimer::elapsedSeconds();
+	    }
 
         /** @brief Get the configuration map */
         std::map<std::string, Value> getConfiguration() const { return configuration_; }
 
         /** @brief Get the objective value */
         double getObjective() const { return objective_; }
+
+        /** @brief Get the time when the configuration was evaluated */
+        int getTime() const { return time_evaluated_; }
 
         /** @brief Check if the configuration has been evaluated */
         bool isEvaluated() const { return evaluated_; }
@@ -83,13 +89,15 @@ class Configuration {
             objective_ = objective;
             scaleObjective();
             evaluated_ = true;
+            time_evaluated_ = GlobalTimer::elapsedSeconds();
         }
 
-	void scaleObjective() {
-	    if (objective_ > 100) {
-	        objective_ = 100;
+        /** @brief Scale the objective value if it exceeds 100 */
+	    void scaleObjective() {
+	        if (objective_ > 100) {
+	            objective_ = 100;
+	        }
 	    }
-	}
 
         /** @brief Equality operator based on configuration map */
         bool operator==(const Configuration& other) const {
@@ -150,6 +158,15 @@ class TunerMemory {
         std::unordered_set<Configuration, Configuration::HashFunction>::const_iterator best_configuration_; ///< Iterator to the best configuration
 
         Configuration default_configuration_; ///< Default configuration (unevaluated)
+
+        /** @brief Print information about a new best configuration found */
+        void printNewBestConfiguration(const Configuration& config) {
+            logger_.info("***************");
+            logger_.info("New best configuration found at time ", config.getTime(), "s, with objective ", config.getObjective());
+            logger_.info("With config: ");
+            config.printConfiguration(logger_.getOutputStream());
+            logger_.info("***************");
+        }
     
     public:
         /** @brief Construct a TunerMemory object */
@@ -181,6 +198,7 @@ class TunerMemory {
             // Update best configuration if necessary
             if (best_configuration_ == configurations_.end() || config.getObjective() < best_configuration_->getObjective()) {
                 best_configuration_ = it;
+                printNewBestConfiguration(*best_configuration_);
             }
 
             logger_.debug("Added configuration to memory with objective: ", config.getObjective(), ". Total stored: ", configurations_.size());
