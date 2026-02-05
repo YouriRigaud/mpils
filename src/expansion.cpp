@@ -178,6 +178,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     std::vector<std::pair<int, std::string>> master_configs_to_evaluate = configs_to_evaluate;
 #endif
     // Master evaluates its configurations
+    std::string solver_log_file_master = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_0";
     for (const auto& config_pair : master_configs_to_evaluate) {
         int config_id = config_pair.first;
         const std::string& config_file_path = config_pair.second;
@@ -186,7 +187,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             logger_,
             instance_file_,
             config_file_path,
-            solver_log_file_,
+            solver_log_file_master,
             nb_threads_solver_,
             cutoff_solver_time_
         );

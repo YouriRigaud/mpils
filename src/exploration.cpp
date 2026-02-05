@@ -163,7 +163,8 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int work
         }
         myfile << "} [" << initial_value.getString() << "]" << std::endl;
     }
-    myfile << "process_mpi { " << worker_id << " } [ " << worker_id << " ]" << std::endl; 
+    myfile << "process_mpi { " << worker_id << " } [ " << worker_id << " ]" << std::endl;
+    myfile << "iteration { " << iteration_ << " } [ " << iteration_ << " ]" << std::endl;
 }
 
 void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile, int worker_id) {
@@ -264,9 +265,9 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         myfile << "cutoff_time = " << cutoff_solver_time_ << std::endl;
         myfile << "maxEvals = " << max_evaluations_ << std::endl;
         myfile << "wallclock-limit = " << cutoff_solver_time_*max_evaluations_ << std::endl;
-        myfile << "logfile = " << solver_log_file_ + "_worker_" + std::to_string(i) << std::endl;
+        myfile << "logfile = " << solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
         myfile << "paramfile = " << parameter_file_path << std::endl;
-        myfile << "outdir = " + param_ils_working_dir_ + "paramils-out_worker_" + std::to_string(i) << std::endl;
+        myfile << "outdir = " + param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
         myfile << "instance_file = " << instance_file_ << std::endl;
         myfile << "test_instance_file = " << instance_file_ << std::endl;
         myfile.close();
@@ -305,7 +306,7 @@ const std::vector<Configuration> ParamILSEngine::getParamILSResults() {
 const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile(int run_obj, int worker_id) {
     std::vector<Configuration> results;
 
-    std::string solver_log_worker = solver_log_file_ + "_worker_" + std::to_string(worker_id);
+    std::string solver_log_worker = solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id);
 
     std::ifstream file(solver_log_worker);
     if (!file) {

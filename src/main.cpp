@@ -92,8 +92,7 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
 #ifdef USE_MPI
 void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) {
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    std::string solver_log_file = options.solver_log_file + "_worker_" + std::to_string(world_rank);
-    Worker worker(world_rank, options.instance_file, solver_log_file, options.nb_threads_solver, options.cutoff_solver_time);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
