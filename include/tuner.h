@@ -66,6 +66,7 @@ class Tuner {
             const std::string& param_ils_instance_file,
             const std::string& solver_log_file,
             int nb_initial_selected_parameters,
+            int nb_parameter_to_evaluate_expansion,
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers
@@ -82,7 +83,7 @@ class Tuner {
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
-            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 20, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 

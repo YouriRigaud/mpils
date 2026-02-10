@@ -76,7 +76,7 @@ const std::vector<std::reference_wrapper<Parameter>> Expansion::selectParameters
     std::vector<std::reference_wrapper<Parameter>> selected_parameters;
     int count = 0;
     for (auto& param : residual_parameters) {
-        if (count >= evaluation_budget_) {
+        if (count >= nb_parameter_to_evaluate_) {
             break;
         }
         selected_parameters.push_back(param);

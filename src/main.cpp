@@ -24,6 +24,7 @@ struct TunerOptions {
     std::string param_ils_instance_file = "./cplex/instances.txt";
     std::string solver_log_file = "./tuner_working_dir/solver/cplex.log";
     int nb_initial_selected_parameters = 11;
+    int nb_parameter_to_evaluate_expansion = 20;
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;
     int nb_workers = 1;
@@ -45,17 +46,17 @@ void writeParamILSInstanceFile(const std::string& filepath, const std::string& i
     myfile.close();
 }
 
-void masterProcess(int argc, char** argv, struct TunerOptions options) {
-
+void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
 
-    // init a clock to measure total tuning time
+    // init a clock to measure tuning time
     GlobalTimer::start();
 
     writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
 
-    std::ofstream log_file("./tuner_working_dir/tuner.log");
+    std::string log_file_path = options.tuner_dir + "tuner.log";
+    std::ofstream log_file(log_file_path);
     Tuner tuner(
         Verbosity::Debug,
         log_file,
@@ -65,6 +66,7 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
         options.param_ils_instance_file,
         options.solver_log_file,
         options.nb_initial_selected_parameters,
+        options.nb_parameter_to_evaluate_expansion,
         options.nb_threads_solver,
         options.cutoff_solver_time,
         options.nb_workers
@@ -80,13 +82,13 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
     tuner.getBestConfiguration().printConfiguration(std::cout);
     log_file << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
 
-    tuner.getBestConfiguration().generateConfigFile("./tuner_working_dir/best_configuration.prm");
+    tuner.getBestConfiguration().generateConfigFile(options.tuner_dir + "best_configuration.prm");
     
     std::cout << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
 
     log_file << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
 
-    tuner.writeConfigurationsHistoryToFiles("./tuner_working_dir/tuner_history");
+    tuner.writeConfigurationsHistoryToFiles(options.tuner_dir + "tuner_history");
 
     log_file.close();
 }
