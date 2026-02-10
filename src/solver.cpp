@@ -35,7 +35,7 @@ void CPLEXSolver::solve() {
         // Set parameters from config file
         cplex.readParam(config_file_path_.c_str());
         // Set time limit
-        //cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
+        cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
         // Solve the model
         cplex.solve();
         // Get gap and time

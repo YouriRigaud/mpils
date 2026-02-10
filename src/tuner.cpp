@@ -205,6 +205,18 @@ void Tuner::run() {
         // Expansion phase
         expansion_.run();
 
+        // Check stopping condition
+        if (memory_.getBestConfiguration() != nullptr) {
+            double best_objective = memory_.getBestConfiguration()->getObjective();
+            if (best_objective <= 0.01) {
+                logger_.info("Stopping condition met: satisfactory objective value achieved (", best_objective, ").");
+#ifdef USE_MPI
+                sendStopOrderToWorkers();
+#endif
+                break;
+            }
+        }
+
         // Pruning phase
         pruning_.run();
         

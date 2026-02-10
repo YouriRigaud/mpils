@@ -53,6 +53,8 @@ class Expansion {
 
         void updateParameterFlags(const std::vector<ClassifyParameterOutput>& classified_parameters);
 
+        void addToEvaluateParameters(Parameter& param, const Configuration& config, double objective_value, int evaluated_time, int worker_id, std::vector<EvaluateParameterOutput>& evaluation_outputs);
+
 #ifdef USE_MPI
         void launchExpansionWorkers();
         void waitExpansionWorkers();
@@ -94,7 +96,7 @@ class ExpansionWorker {
         double cutoff_solver_time_;
 
         std::vector<std::pair<int, std::string>> configs_to_evaluate_; // Pair of (config_id, config_file_path)
-        std::vector<std::pair<int, double>> evaluation_results_; // Pair of (config_id, objective_value)
+        std::vector<std::pair<int, std::pair<double, int>>> evaluation_results_; // Pair of (config_id, (objective_value, evaluated_time))
 
         void receiveConfigsToEvaluateFromMaster();
         void evaluateConfigurations();

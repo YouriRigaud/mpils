@@ -23,9 +23,9 @@ struct TunerOptions {
     std::string instance_file = "./cplex/30n20b8.mps";
     std::string param_ils_instance_file = "./cplex/instances.txt";
     std::string solver_log_file = "./tuner_working_dir/solver/cplex.log";
-    int nb_initial_selected_parameters = 2;
+    int nb_initial_selected_parameters = 11;
     int nb_threads_solver = 2;
-    double cutoff_solver_time = 3.0;
+    double cutoff_solver_time = 15.0;
     int nb_workers = 1;
 };
 
@@ -50,10 +50,10 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
 
-    writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
-
     // init a clock to measure total tuning time
     GlobalTimer::start();
+
+    writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
 
     std::ofstream log_file("./tuner_working_dir/tuner.log");
     Tuner tuner(
@@ -86,11 +86,15 @@ void masterProcess(int argc, char** argv, struct TunerOptions options) {
 
     log_file << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
 
+    tuner.writeConfigurationsHistoryToFiles("./tuner_working_dir/tuner_history");
+
     log_file.close();
 }
 
 #ifdef USE_MPI
 void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) {
+    // init a clock to measure total tuning time
+    GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
     Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time);
     worker.run();

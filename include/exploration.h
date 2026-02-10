@@ -25,6 +25,7 @@ class LocalSearchEngine {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         int nb_workers_;
+        int local_search_start_time_;
 
         const std::vector<Configuration> parseCplexResultsFromLogFile(int run_obj, int worker_id);
 
@@ -59,7 +60,7 @@ class LocalSearchEngine {
 
         virtual ~LocalSearchEngine() = default;
 
-        virtual std::vector<Configuration> run() = 0;
+        virtual std::vector<std::pair<int, std::vector<Configuration>>> run() = 0;
 };
 
 class ParamILSEngine : public LocalSearchEngine {
@@ -82,7 +83,7 @@ class ParamILSEngine : public LocalSearchEngine {
 
         void callParamILS();
 
-        const std::vector<Configuration> getParamILSResults();
+        const std::vector<std::pair<int, std::vector<Configuration>>> getParamILSResults();
 
     public:
         ParamILSEngine(
@@ -99,13 +100,13 @@ class ParamILSEngine : public LocalSearchEngine {
         ): LocalSearchEngine(logger, initial_configurations, parameter_space, instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers)
         {}
 
-        std::vector<Configuration> run() override;
+        std::vector<std::pair<int, std::vector<Configuration>>> run() override;
 
 };
 
 class RandomLocalSearch : public LocalSearchEngine {
     private:
-        std::vector<Configuration> generateRandomNeighbors() {
+        std::vector<std::pair<int, std::vector<Configuration>>> generateRandomNeighbors() {
             // Implementation of random neighbor generation
             return {};
         }
@@ -125,7 +126,7 @@ class RandomLocalSearch : public LocalSearchEngine {
         ): LocalSearchEngine(logger, initial_configurations, parameter_space, instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers)
         {}
 
-        std::vector<Configuration> run() override {
+        std::vector<std::pair<int, std::vector<Configuration>>> run() override {
             return generateRandomNeighbors();
         }
 };

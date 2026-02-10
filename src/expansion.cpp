@@ -6,6 +6,7 @@
 #include "../include/expansion.h"
 #include "../include/solver.h"
 #include "../include/tuner.h"
+#include "../include/globaltimer.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -54,9 +55,8 @@ void Expansion::run() {
     }
 
     int total_configs = 0;
-    for (const auto& evaluation_results : evaluation_results) {
-        memory_.addConfigurations(evaluation_results.configurations);
-        total_configs += evaluation_results.configurations.size();
+    for (const auto& evaluation_result : evaluation_results) {
+        total_configs += evaluation_result.configurations.size();
     }
 
     logger_.info("Added ", total_configs, " configurations to memory from expansion phase at iteration ", iteration_);
@@ -128,7 +128,7 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
     return configuration_files_outputs;
 }
 
-void addToEvaluateParameters(Parameter& param, const Configuration& config, double objective_value, std::vector<EvaluateParameterOutput>& evaluation_outputs) {
+void Expansion::addToEvaluateParameters(Parameter& param, const Configuration& config, double objective_value, int evaluated_time, int worker_id, std::vector<EvaluateParameterOutput>& evaluation_outputs) {
     // Find or create EvaluateParameterOutput for the parameter
     auto it = std::find_if(evaluation_outputs.begin(), evaluation_outputs.end(),
                            [&param](const EvaluateParameterOutput& epo) { return &epo.parameter == &param; });
@@ -139,8 +139,9 @@ void addToEvaluateParameters(Parameter& param, const Configuration& config, doub
 
     // Add the evaluated configuration
     Configuration evaluated_config = config;
-    evaluated_config.setObjective(objective_value);
+    evaluated_config.setObjective(objective_value, evaluated_time);
     it->configurations.push_back(evaluated_config);
+    memory_.addConfiguration(evaluated_config, worker_id, iteration_, 1); // Add to memory with worker_id, iteration and phase for logging
 }
 
 const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files_outputs) {
@@ -194,9 +195,10 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 
         solver.solve();
         double objective_value = solver.getObjectiveValue();
+        int evaluated_time = GlobalTimer::elapsedSeconds();
 
         const auto& create_output = configuration_files_outputs[config_id];
-        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluation_outputs);
+        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluated_time, 0, evaluation_outputs);
     }
 #ifdef USE_MPI
     // Receive results from workers
@@ -207,11 +209,13 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         for (int i = 0; i < num_results; ++i) {
             int config_id;
             double objective_value;
+            int evaluated_time;
             MPI_Recv(&config_id, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
             MPI_Recv(&objective_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
+            MPI_Recv(&evaluated_time, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
 
             const auto& create_output = configuration_files_outputs[config_id];
-            addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluation_outputs);
+            addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluated_time, worker_id, evaluation_outputs);
         }
     }
 #endif
@@ -316,8 +320,9 @@ void ExpansionWorker::evaluateConfigurations() {
 
         solver.solve();
         double objective_value = solver.getObjectiveValue();
+        int elapsed_time = GlobalTimer::elapsedSeconds();
 
-        evaluation_results_.emplace_back(config_id, objective_value);
+        evaluation_results_.emplace_back(config_id, {objective_value, elapsed_time});
     }
 }
 
@@ -328,9 +333,11 @@ void ExpansionWorker::sendConfigsResultToMaster() {
 
     for (const auto& result_pair : evaluation_results_) {
         int config_id = result_pair.first;
-        double objective_value = result_pair.second;
+        double objective_value = result_pair.second.first;
+        int evaluated_time = result_pair.second.second;
         MPI_Send(&config_id, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&objective_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(&evaluated_time, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
     }
 }
 #endif

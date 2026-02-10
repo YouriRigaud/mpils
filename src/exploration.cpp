@@ -5,6 +5,7 @@
 
 #include "../include/exploration.h"
 #include "../include/tuner.h"
+#include "../include/globaltimer.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -62,7 +63,7 @@ int Exploration::selectNumberOfEvaluations() {
     {
     case 1:
         factor = 2;
-        break;
+        return factor * (parameter_space_.getSelectedParameters().size());
     case 2:
         factor = 3;
         break;
@@ -76,7 +77,7 @@ int Exploration::selectNumberOfEvaluations() {
         factor = 9;
         break;
     }
-    return factor * (1 + parameter_space_.getSelectedParameters().size());
+    return factor * parameter_space_.getSelectedParameters().size();
 }
 
 void Exploration::run() {
@@ -98,14 +99,22 @@ void Exploration::run() {
         logger_.info("Default ParamILSEngine has been set.");
     }
     
-    const std::vector<Configuration> configs = engine_->run();
-    logger_.info("Adding configurations : ", configs.size(), " to memory from exploration phase at iteration ", iteration_);
-    memory_.addConfigurations(configs);
+    const std::vector<std::pair<int, std::vector<Configuration>>> configs = engine_->run();
+
+    int nb_configs = 0;
+    for (const auto& config_pair : configs) {
+        int worker_id = config_pair.first;
+        const std::vector<Configuration>& worker_configs = config_pair.second;
+        memory_.addConfigurations(worker_configs, worker_id, iteration_, 0); // Phase 0 for exploration
+        nb_configs += worker_configs.size();
+    }
+    
+    logger_.info("Added", nb_configs, " configurations to memory from exploration phase at iteration ", iteration_);
 
     logger_.info("Exploration phase completed.");
 }
 
-std::vector<Configuration> ParamILSEngine::run() {
+std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
     
@@ -121,7 +130,7 @@ std::vector<Configuration> ParamILSEngine::run() {
     waitLocalSearchWorkers();
 #endif
 
-    std::vector<Configuration> results = getParamILSResults();
+    std::vector<std::pair<int, std::vector<Configuration>>> results = getParamILSResults();
 
     logger_.info("ParamILS Engine completed.");
     return results;
@@ -169,10 +178,6 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int work
 
 void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile, int worker_id) {
     // Implementation to write forbidden options to file
-//    std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
-//    for (const auto& pair : forbidden_values) {
-//        myfile << "{" << pair.first << "=" << pair.second.getString() << "}" << std::endl;
-//    }
     std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
     // For each forbidden tuple we have to look if the initial configuration contains it, so we do not forbid it
     Configuration initial_config = initial_configurations_[worker_id];
@@ -279,6 +284,7 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
 void ParamILSEngine::callParamILS() {
     // Implementation to call the ParamILS executable
     logger_.info("Calling ParamILS executable...");
+    local_search_start_time_ = GlobalTimer::elapsedSeconds();
 
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(0) + ".txt";
     std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
@@ -290,14 +296,14 @@ void ParamILSEngine::callParamILS() {
     logger_.info("ParamILS executable call completed.");
 }
 
-const std::vector<Configuration> ParamILSEngine::getParamILSResults() {
+const std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::getParamILSResults() {
     // Implementation to get results from ParamILS
     logger_.info("Retrieving ParamILS results...");
-    std::vector<Configuration> results;
+    std::vector<std::pair<int, std::vector<Configuration>>> results;
     // For each worker, parse its CPLEX log file
     for (int i = 0; i < nb_workers_; ++i) {
         std::vector<Configuration> worker_results = parseCplexResultsFromLogFile(0, i);
-        results.insert(results.end(), worker_results.begin(), worker_results.end());
+        results.insert(results.end(), std::make_pair(i, worker_results));
     }
     logger_.info("ParamILS results retrieved: ", results.size(), " configurations found.");
     return results;
@@ -305,6 +311,7 @@ const std::vector<Configuration> ParamILSEngine::getParamILSResults() {
 
 const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile(int run_obj, int worker_id) {
     std::vector<Configuration> results;
+    double local_search_elapsed_time = 0;
 
     std::string solver_log_worker = solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id);
 
@@ -335,7 +342,15 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
             }
         }
 
-        results.emplace_back(params, obj);
+        // Get the elapsed time of the config evaluation
+        if (time_sec >= 0) {
+            local_search_elapsed_time += time_sec;
+        } else {
+            local_search_elapsed_time += cutoff_solver_time_;
+        }
+        int config_elapsed_time = local_search_start_time_ + local_search_elapsed_time;
+
+        results.emplace_back(params, obj, config_elapsed_time);
 
         params.clear();
         gap = -1.0;
@@ -416,7 +431,7 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
         if (inside_block && line.rfind("Solution time =", 0) == 0) {
             std::istringstream iss(line);
             std::string tmp;
-            iss >> tmp >> tmp >> time_sec; // "Solution time = 0.32"
+            iss >> tmp >> tmp >> tmp >> time_sec; // "Solution time = 0.32"
             continue;
         }
     }
