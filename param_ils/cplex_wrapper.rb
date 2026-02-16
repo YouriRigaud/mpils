@@ -71,8 +71,9 @@ end
 #=== Change to however you call CPLEX locally.
 #=== This is a File.popen construct, because I need to pipe in all the parameters after calling CPLEX.
 #=== (you can also do this as a double File.popen construct: call ruby on the command line to call CPLEX and output something; that something can be read in with File.popen again - this is what I used to do in the commented part below. But now I'm just going via the logfile.)
-#cmd = "ruby -e 'File.popen(\"/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| "
-cmd = "ruby -e 'File.popen(\"/home/ibm/cplex-studio/22.1.1/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " #Added by youri
+#cmd = "ruby -e 'File.popen(\"/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call own PC
+#cmd = "ruby -e 'File.popen(\"/home/ibm/cplex-studio/22.1.1/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call gerad
+#cmd = "ruby -e 'File.popen(\"/home/yorig/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call alliance
 
 cplex_lines = []
 cplex_lines << "set logfile #{logfile}"
