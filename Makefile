@@ -15,12 +15,24 @@ SRCS = $(wildcard $(SRC_DIR)/*.cpp)
 OBJS = $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SRCS))
 TARGET = $(BUILD_DIR)/mpils
 
-CPLEX_DIR = /opt/ibm/ILOG/CPLEX_Studio2212
+CPLEX_DIR = /home/yorig/CPLEX_Studio2212
+
+# MLPack
+mlpack_dir := /home/yorig/mlpack-4.6.2
+mlpack_lib := ${mlpack_dir}/build/lib
+mlpack_include := ${mlpack_dir}/src
+
+# Ensmallen
+ensmallen_dir := /home/yorig/ensmallen-3.10.0
+ensmallen_include := ${ensmallen_dir}/include
 
 INCLUDE_DIRS = \
     -Iinclude \
     -I$(CPLEX_DIR)/cplex/include \
-    -I$(CPLEX_DIR)/concert/include
+    -I$(CPLEX_DIR)/concert/include \
+    -I${ensmallen_include} \
+    -I${mlpack_include} 
+
 
 LIB_DIRS = \
     -L$(CPLEX_DIR)/cplex/lib/x86-64_linux/static_pic \
