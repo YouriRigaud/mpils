@@ -6,47 +6,75 @@
 #include "../include/parameter.h"
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
+#include "../include/globaltimer.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 #include <iostream>
 #include <string>
 #include <fstream>
 
-int main(int argc, char** argv) {
-    // If no arguments, use default instance file
-    std::string instance_file = "./cplex/N1.lp";
+// Use this struct to tune the options of the tuner
+struct TunerOptions {
+    std::string tuner_dir = "./tuner_working_dir/";
+    std::string parameters_file = "./cplex/params_12_cpx.txt";
+    std::string instance_file = "./cplex/30n20b8.mps";
+    std::string param_ils_instance_file = "./cplex/instances.txt";
+    std::string solver_log_file = "./tuner_working_dir/solver/cplex.log";
+    int nb_initial_selected_parameters = 11;
+    int nb_parameter_to_evaluate_expansion = 20;
+    int nb_threads_solver = 2;
+    double cutoff_solver_time = 15.0;
+    int nb_workers = 1;
+};
+
+void getTunerOptions(int argc, char** argv, TunerOptions& options) {
+    // Implementation to parse command line arguments and set options
+    // TODO: implement argument parsing
     // If argument provided, use it as instance file
     if (argc > 1) {
-        instance_file = std::string(argv[1]);
+        options.instance_file = std::string(argv[1]);
     }
+}
 
+void writeParamILSInstanceFile(const std::string& filepath, const std::string& instance_file) {
+    std::ofstream myfile;
+    myfile.open(filepath);
+    myfile << instance_file << std::endl;
+    myfile.close();
+}
+
+void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
-    std::cout << "Tuning instance: " << instance_file << std::endl;
+    std::cout << "Tuning instance: " << options.instance_file << std::endl;
 
-    // init a clock to measure total tuning time
-    auto start_time = std::chrono::high_resolution_clock::now();
+    // init a clock to measure tuning time
+    GlobalTimer::start();
 
-    std::ofstream log_file("./tuner_working_dir/tuner.log");
+    writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
+
+    std::string log_file_path = options.tuner_dir + "tuner.log";
+    std::ofstream log_file(log_file_path);
     Tuner tuner(
         Verbosity::Debug,
         log_file,
-        "./tuner_working_dir/",
-        "./cplex/params_12_cpx.txt",
-        instance_file,
-        "./cplex/instances.txt",
-        "./tuner_working_dir/solver/cplex.log",
-        10,      // Number of initial selected parameters
-        8,      // Number of threads for the solver
-        90.0   // Cutoff time for the solver
+        options.tuner_dir,
+        options.parameters_file,
+        options.instance_file,
+        options.param_ils_instance_file,
+        options.solver_log_file,
+        options.nb_initial_selected_parameters,
+        options.nb_parameter_to_evaluate_expansion,
+        options.nb_threads_solver,
+        options.cutoff_solver_time,
+        options.nb_workers
     );
     
     tuner.setup();
 
     tuner.run();
-
-    // Calculate and print total tuning time
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
 
     std::cout << "Best configuration found:" << std::endl;
     std::cout << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
@@ -54,13 +82,49 @@ int main(int argc, char** argv) {
     tuner.getBestConfiguration().printConfiguration(std::cout);
     log_file << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
 
-    tuner.getBestConfiguration().generateConfigFile("./tuner_working_dir/best_configuration.prm");
+    tuner.getBestConfiguration().generateConfigFile(options.tuner_dir + "best_configuration.prm");
     
-    std::cout << "Total tuning time: " << duration << " seconds." << std::endl;
+    std::cout << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
 
-    log_file << "Total tuning time: " << duration << " seconds." << std::endl;
+    log_file << "Total tuning time: " << GlobalTimer::elapsedSeconds() << " seconds." << std::endl;
+
+    tuner.writeConfigurationsHistoryToFiles(options.tuner_dir + "tuner_history");
 
     log_file.close();
+}
+
+#ifdef USE_MPI
+void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) {
+    // init a clock to measure total tuning time
+    GlobalTimer::start();
+    std::cout << "Worker process " << world_rank << " started." << std::endl;
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time);
+    worker.run();
+    std::cout << "Worker process " << world_rank << " finished." << std::endl;
+}
+#endif
+
+int main(int argc, char** argv) {
+
+    TunerOptions options;
+    getTunerOptions(argc, argv, options);
+
+#ifdef USE_MPI
+    MPI_Init(&argc, &argv);
+    int world_rank;
+    int world_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    options.nb_workers = world_size;
+    if (world_rank == 0) {
+        masterProcess(argc, argv, options);
+    } else {
+        workerProcess(argc, argv, world_rank, options);
+    }
+    MPI_Finalize();
+#else
+    masterProcess(argc, argv, options);
+#endif
 
     return 0;
 }

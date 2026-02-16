@@ -4,6 +4,12 @@
 // License: GNU GPLv3
 
 #include "../include/exploration.h"
+#include "../include/tuner.h"
+#include "../include/globaltimer.h"
+
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 #include <vector>
 #include <string>
@@ -19,16 +25,34 @@ void Exploration::updateTunedParameters() {
 }
 
 std::vector<Configuration> Exploration::selectInitialConfigurations() {
+    // Warning: The initial configurations vector must contain at least nb_workers_ configurations (these could be duplicates)
     // Implementation to select initial configurations for tuning phase
     logger_.info("Selecting initial configurations for tuning phase...");
+    std::vector<Configuration> initial_configurations;
     if (memory_.getBestConfiguration() != nullptr) {
         logger_.info("Using best configuration from memory as initial configuration.");
-        return {*(memory_.getBestConfiguration())};
+        initial_configurations.push_back(*(memory_.getBestConfiguration()));
     } else {
         logger_.info("No best configuration in memory, using default initial configuration.");
-        return {memory_.getDefaultConfiguration()}; // Return default configuration if no best found
+        initial_configurations.push_back(memory_.getDefaultConfiguration()); // Return default configuration if no best found
     }
-    return {};
+    //Todo: implementation is for test only, after use random configurations or other strategies
+    while (initial_configurations.size() < static_cast<size_t>(nb_workers_)) {
+        // add a random configuration, random only on parameter that are tuned, default value for others
+        std::map<std::string, Value> config_map;
+        for (const auto& param : parameter_space_.getParameters()) {
+            if (param.isTuned()) {
+                // select a random value from the parameter's possible values
+                const auto& values = param.getValues();
+                size_t random_index = rand() % values.size();
+                config_map.insert_or_assign(param.getName(), values[random_index]);
+            } else {
+                config_map.insert_or_assign(param.getName(), param.getDefaultValue());
+            }
+        }
+        initial_configurations.push_back(Configuration(config_map));
+    }
+    return initial_configurations;
 }
 
 int Exploration::selectNumberOfEvaluations() {
@@ -39,7 +63,7 @@ int Exploration::selectNumberOfEvaluations() {
     {
     case 1:
         factor = 2;
-        break;
+        return factor * (parameter_space_.getSelectedParameters().size());
     case 2:
         factor = 3;
         break;
@@ -53,7 +77,7 @@ int Exploration::selectNumberOfEvaluations() {
         factor = 9;
         break;
     }
-    return factor * (1 + parameter_space_.getSelectedParameters().size());
+    return factor * parameter_space_.getSelectedParameters().size();
 }
 
 void Exploration::run() {
@@ -66,41 +90,58 @@ void Exploration::run() {
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
 
-    setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations[0], parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_));
+    setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations, parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
 
 
     if (!engine_) {
         logger_.info("No local search engine set for exploration.");
-        setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations[0], parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_));
+        setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations, parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
         logger_.info("Default ParamILSEngine has been set.");
     }
     
-    const std::vector<Configuration> configs = engine_->run();
-    logger_.info("Adding configurations : ", configs.size(), " to memory from exploration phase at iteration ", iteration_);
-    memory_.addConfigurations(configs);
+    const std::vector<std::pair<int, std::vector<Configuration>>> configs = engine_->run();
+
+    int nb_configs = 0;
+    for (const auto& config_pair : configs) {
+        int worker_id = config_pair.first;
+        const std::vector<Configuration>& worker_configs = config_pair.second;
+        memory_.addConfigurations(worker_configs, worker_id, iteration_, 0); // Phase 0 for exploration
+        nb_configs += worker_configs.size();
+    }
+    
+    logger_.info("Added", nb_configs, " configurations to memory from exploration phase at iteration ", iteration_);
 
     logger_.info("Exploration phase completed.");
 }
 
-std::vector<Configuration> ParamILSEngine::run() {
+std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
     
-    writeParamILSParameterFile();
-    writeParamILSScenarioFile();
+    writeParamILSParameterFiles();
+    writeParamILSScenarioFiles();
+
+    // All workers call ParamILS at the same time and wait for each other
+#ifdef USE_MPI
+    launchLocalSearchWorkers();
+#endif
     callParamILS();
-    std::vector<Configuration> results = getParamILSResults();
+#ifdef USE_MPI
+    waitLocalSearchWorkers();
+#endif
+
+    std::vector<std::pair<int, std::vector<Configuration>>> results = getParamILSResults();
 
     logger_.info("ParamILS Engine completed.");
     return results;
 }
 
-void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile) {
+void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int worker_id) {
     // Implementation to write the parameter space to file
     std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
 
     for (auto& param : parameter_space_.getParameters()) {
-        const Value initial_value = initial_configuration_.getConfiguration().at(param.getName());
+        const Value initial_value = initial_configurations_[worker_id].getConfiguration().at(param.getName());
         myfile << param.getName() << " {";
         if (param.isTuned()) {
             const auto& values = param.getValues();
@@ -112,7 +153,7 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile) {
                         is_forbidden = true;
                         // if it is the initial value, log a warning
                         if (values[i] == initial_value) {
-                            logger_.info("Warning: Initial value for parameter ", param.getName(), " is forbidden. So unforbidden it.");
+                            logger_.info("Warning: Initial value for parameter ", param.getName(), " is forbidden. So unforbidden it for this worker ", i, " at iteration ", iteration_, ".");
                             is_forbidden = false;
                         }
                         break;
@@ -131,17 +172,15 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile) {
         }
         myfile << "} [" << initial_value.getString() << "]" << std::endl;
     }
+    myfile << "process_mpi { " << worker_id << " } [ " << worker_id << " ]" << std::endl;
+    myfile << "iteration { " << iteration_ << " } [ " << iteration_ << " ]" << std::endl;
 }
 
-void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile) {
+void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile, int worker_id) {
     // Implementation to write forbidden options to file
-//    std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
-//    for (const auto& pair : forbidden_values) {
-//        myfile << "{" << pair.first << "=" << pair.second.getString() << "}" << std::endl;
-//    }
     std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
     // For each forbidden tuple we have to look if the initial configuration contains it, so we do not forbid it
-    Configuration initial_config = initial_configuration_;
+    Configuration initial_config = initial_configurations_[worker_id];
 
     for (const auto& tuple : forbidden_tuples) {
         bool is_forbidden = true;
@@ -156,7 +195,7 @@ void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile) {
             }
         }
         if (is_forbidden) {
-            logger_.info("Warning: Initial configuration contains a forbidden tuple. So unforbidden it.");
+            logger_.info("Warning: Initial configuration contains a forbidden tuple. So unforbidden it for this worker at iteration ", iteration_, ".");
             continue; // Skip this forbidden tuple
         }
 
@@ -184,63 +223,70 @@ void ParamILSEngine::writeConditionalCplexOptionsToFile(std::ofstream& myfile) {
     myfile << "mip_strategy_order | mip_ordertype in {1,2,3} " << std::endl;
 }
 
-void ParamILSEngine::writeParamILSParameterFile() {
-    // Implementation to write the ParamILS parameter file
-    logger_.info("Writing ParamILS parameter file...");
-    std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + ".txt";
+void ParamILSEngine::writeParamILSParameterFiles() {
+    // Implementation to write the ParamILS parameter files
+    logger_.info("Writing ParamILS parameter files...");
 
-    // open parameter file
-    std::ofstream myfile;
-    myfile.open(parameter_file_path);
-    if (!myfile.is_open()) {
-        logger_.info("Error opening ParamILS parameter file for writing.");
-        return;
+    for (int i = 0; i < nb_workers_; ++i) {
+        std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
+
+        // open parameter file
+        std::ofstream myfile;
+        myfile.open(parameter_file_path);
+        if (!myfile.is_open()) {
+            logger_.info("Error opening ParamILS parameter file for writing.");
+            return;
+        }
+
+        writeParameterOptionsToFile(myfile, i);
+
+        writeForbiddenOptionsToFile(myfile, i);
+
+        writeConditionalCplexOptionsToFile(myfile);
+
+        myfile.close();
     }
 
-    writeParameterOptionsToFile(myfile);
-
-    writeForbiddenOptionsToFile(myfile);
-
-    writeConditionalCplexOptionsToFile(myfile);
-
-    myfile.close();
-
-    logger_.info("ParamILS parameter file written.");
+    logger_.info("ParamILS parameter files written.");
 }
 
-void ParamILSEngine::writeParamILSScenarioFile() {
+void ParamILSEngine::writeParamILSScenarioFiles() {
     // Implementation to write the ParamILS scenario file
-    logger_.info("Writing ParamILS scenario file...");
-    std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + ".txt";
-    std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + ".txt";
-   
-    std::string tuning_obj = "qual";
+    logger_.info("Writing ParamILS scenario files...");
 
-    std::ofstream myfile;
-    myfile.open(scenario_file_path);
-    myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb" << std::endl;
-    myfile << "execdir = ." << std::endl;
-    myfile << "deterministic = 1" << std::endl;
-    myfile << "run_obj = " << tuning_obj << std::endl;
-    myfile << "overall_obj = mean" << std::endl;
-    myfile << "cutoff_time = " << cutoff_solver_time_ << std::endl;
-    myfile << "maxEvals = " << max_evaluations_ << std::endl;
-    myfile << "wallclock-limit = " << cutoff_solver_time_*max_evaluations_ << std::endl;
-    myfile << "logfile = " << solver_log_file_ << std::endl;
-    myfile << "paramfile = " << parameter_file_path << std::endl;
-    myfile << "outdir = " + param_ils_working_dir_ + "paramils-out" << std::endl;
-    myfile << "instance_file = " << instance_file_ << std::endl;
-    myfile << "test_instance_file = " << instance_file_ << std::endl;
-    myfile.close();
+    for (int i = 0; i < nb_workers_; ++i) {
+        std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
+        std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
+       
+        std::string tuning_obj = "qual";
 
-    logger_.info("ParamILS scenario file written.");
+        std::ofstream myfile;
+        myfile.open(scenario_file_path);
+        myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb" << std::endl;
+        myfile << "execdir = ." << std::endl;
+        myfile << "deterministic = 1" << std::endl;
+        myfile << "run_obj = " << tuning_obj << std::endl;
+        myfile << "overall_obj = mean" << std::endl;
+        myfile << "cutoff_time = " << cutoff_solver_time_ << std::endl;
+        myfile << "maxEvals = " << max_evaluations_ << std::endl;
+        myfile << "wallclock-limit = " << cutoff_solver_time_*max_evaluations_ << std::endl;
+        myfile << "logfile = " << solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
+        myfile << "paramfile = " << parameter_file_path << std::endl;
+        myfile << "outdir = " + param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
+        myfile << "instance_file = " << instance_file_ << std::endl;
+        myfile << "test_instance_file = " << instance_file_ << std::endl;
+        myfile.close();
+    }
+
+    logger_.info("ParamILS scenario files written.");
 }
 
 void ParamILSEngine::callParamILS() {
     // Implementation to call the ParamILS executable
     logger_.info("Calling ParamILS executable...");
+    local_search_start_time_ = GlobalTimer::elapsedSeconds();
 
-    std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + ".txt";
+    std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(0) + ".txt";
     std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
     int ret = system(command.c_str());
     if (ret != 0) {
@@ -250,20 +296,28 @@ void ParamILSEngine::callParamILS() {
     logger_.info("ParamILS executable call completed.");
 }
 
-const std::vector<Configuration> ParamILSEngine::getParamILSResults() {
+const std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::getParamILSResults() {
     // Implementation to get results from ParamILS
     logger_.info("Retrieving ParamILS results...");
-    std::vector<Configuration> results = parseCplexResultsFromLogFile(0);
-    // Placeholder implementation
+    std::vector<std::pair<int, std::vector<Configuration>>> results;
+    // For each worker, parse its CPLEX log file
+    for (int i = 0; i < nb_workers_; ++i) {
+        std::vector<Configuration> worker_results = parseCplexResultsFromLogFile(0, i);
+        results.insert(results.end(), std::make_pair(i, worker_results));
+    }
+    logger_.info("ParamILS results retrieved: ", results.size(), " configurations found.");
     return results;
 }
 
-const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile(int run_obj) {
+const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile(int run_obj, int worker_id) {
     std::vector<Configuration> results;
+    double local_search_elapsed_time = 0;
 
-    std::ifstream file(solver_log_file_);
+    std::string solver_log_worker = solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id);
+
+    std::ifstream file(solver_log_worker);
     if (!file) {
-        logger_.info("Cannot open CPLEX log file: " + solver_log_file_);
+        logger_.info("Cannot open CPLEX log file: " + solver_log_worker);
         return results;
     }
 
@@ -288,7 +342,15 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
             }
         }
 
-        results.emplace_back(params, obj);
+        // Get the elapsed time of the config evaluation
+        if (time_sec >= 0) {
+            local_search_elapsed_time += time_sec;
+        } else {
+            local_search_elapsed_time += cutoff_solver_time_;
+        }
+        int config_elapsed_time = local_search_start_time_ + local_search_elapsed_time;
+
+        results.emplace_back(params, obj, config_elapsed_time);
 
         params.clear();
         gap = -1.0;
@@ -369,7 +431,7 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
         if (inside_block && line.rfind("Solution time =", 0) == 0) {
             std::istringstream iss(line);
             std::string tmp;
-            iss >> tmp >> tmp >> time_sec; // "Solution time = 0.32"
+            iss >> tmp >> tmp >> tmp >> time_sec; // "Solution time = 0.32"
             continue;
         }
     }
@@ -379,3 +441,23 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
 
     return results;
 }
+
+#ifdef USE_MPI
+void LocalSearchEngine::launchLocalSearchWorkers() {
+    logger_.info("Launching Local Search Workers via MPI...");
+    // Implementation to launch local search workers using MPI
+    // Broadcast to give all workers worker_step = 1 and iteration_
+    WorkerOrder order;
+    order.step = 1; // exploration step
+    order.iteration = iteration_;
+    MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
+    logger_.info("Local Search Workers launched.");
+}
+
+void LocalSearchEngine::waitLocalSearchWorkers() {
+    logger_.info("Waiting for Local Search Workers via MPI...");
+    // Implementation to wait for local search workers using MPI
+    MPI_Barrier(MPI_COMM_WORLD);
+    logger_.info("Local Search Workers have completed.");
+}
+#endif

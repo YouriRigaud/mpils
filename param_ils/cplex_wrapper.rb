@@ -28,7 +28,6 @@ datetime2 = t.strftime("%Y-%m-%d_%H:%M:%S") # YYYY-MM-DD_HH:MM:SS added by Youri
 outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-#{datetime2}"
 #logfile = "/Users/ilyashimmich/Documents/POSTDOC/projets_DLP/article/CODE/paramils2.3.8-source/example_cplex/log_file/cplex.log"
 #logfile = "./example_cplex/log_file/cplex_#{log_inst_name}.log"
-logfile = "tuner_working_dir/solver/cplex.log"
 #logfile = "/tmp/trace_files"
 
 obj_lower_bound = false
@@ -48,6 +47,9 @@ while i<ARGV.length-1
 		mpi_run = true
 		process_rank = ARGV[i+1]
 		i+=2
+	elsif param == "iteration"
+		iteration = ARGV[i+1]
+		i+=2
 	#=== Exception for parameter that has a tuple as value
 	elsif param == "simplex_perturbation"
 		param_lines << "set #{set_cmd} #{ARGV[i+1]} #{ARGV[i+2]}"
@@ -59,8 +61,11 @@ while i<ARGV.length-1
 end
 
 
+logfile = "tuner_working_dir/solver/cplex.log_iteration_paramils_#{iteration}_worker_0"
+
 if mpi_run
-	logfile = "/tmp/MLILS_youri/log_files/cplex_#{log_inst_name}_process_#{process_rank}.log"
+	logfile = "tuner_working_dir/solver/cplex.log_iteration_paramils_#{iteration}_worker_#{process_rank}"
+	outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-worker-#{process_rank}-#{datetime2}"
 end
 
 #=== Change to however you call CPLEX locally.

@@ -75,6 +75,11 @@ class Logger {
         /** @brief Change the output stream. */
         void setOutput(std::ostream& output) { out_ = &output; }
 
+        /** @brief Return a reference to the output stream */
+        std::ostream& getOutputStream() {
+            return *out_;
+        }
+
         /**
          * @brief Print an info-level message.
          * @tparam Args Variadic template parameters for message components.

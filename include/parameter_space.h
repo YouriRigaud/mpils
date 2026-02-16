@@ -89,6 +89,16 @@ class ParameterSpace {
             forbidden_tuples_.push_back(tuple);
         }
 
+        /** @brief Get a parameter by name */
+        Parameter* getParameterByName(const std::string& name) {
+            for (auto& param : parameters_) {
+                if (param.getName() == name) {
+                    return &param;
+                }
+            }
+            return nullptr; // Return nullptr if not found
+        }
+
 };
 
 #endif // PARAMETER_SPACE_H

@@ -3,8 +3,13 @@
 # Author: Youri Rigaud
 # License: GNU GPLv3
 
-CXX = g++
+CXX_SEQ = g++
+CXX_MPI = mpic++
+
+CXX = $(CXX_SEQ)
 CXXFLAGS = -std=c++17 -Wall -Wextra -g -fno-omit-frame-pointer
+
+MPI_FLAGS = -DUSE_MPI
 
 INCLUDE_DIRS = -Iinclude
 SRC_DIR = src
@@ -42,7 +47,7 @@ LIBS = -lilocplex -lcplex -lconcert -lm -lpthread -larmadillo
 
 
 
-.PHONY: all clean
+.PHONY: all clean mpi
 all: $(TARGET)
 $(TARGET): $(OBJS) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIB_DIRS) $(LIBS)
@@ -54,3 +59,6 @@ $(OBJ_DIR):
 	mkdir -p $@
 clean:
 	rm -rf $(BUILD_DIR)
+mpi: CXX = $(CXX_MPI)
+mpi: CXXFLAGS += $(MPI_FLAGS)
+mpi: all

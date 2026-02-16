@@ -20,7 +20,13 @@ void CPLEXSolver::solve() {
         //cplex.setParam(IloCplex::Param::Threads, nb_threads_);
         
         // Set log file
-        std::ofstream logStream(log_file_);
+        std::ofstream logStream(log_file_, std::ios::app);
+        
+        logStream << "\n===== New CPLEX run =====\n";
+        logStream << "Instance: " << instance_file_ << "\n";
+        logStream << "Config: " << config_file_path_ << "\n";
+        logStream << "========================\n";
+
         cplex.setOut(logStream);
         cplex.setWarning(logStream);
         cplex.setError(logStream);
@@ -29,7 +35,7 @@ void CPLEXSolver::solve() {
         // Set parameters from config file
         cplex.readParam(config_file_path_.c_str());
         // Set time limit
-        //cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
+        cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
         // Solve the model
         cplex.solve();
         // Get gap and time

@@ -32,6 +32,7 @@ class Tuner {
         const int nb_initial_selected_parameters_; ///< Number of parameters to select initially
         const int nb_threads_solver_;              ///< Number of threads for the solver
         const double cutoff_solver_time_;          ///< Cutoff time for each solver run
+        const int nb_workers_;                     ///< Number of worker processes for parallel execution
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -51,6 +52,10 @@ class Tuner {
 
         void writeParametersIdToFile(const Configuration& config, const std::string& filepath); // Write parameter IDs of a configuration to a file
 
+#ifdef USE_MPI
+        void sendStopOrderToWorkers();
+#endif
+
     public:
         Tuner(
             Verbosity level,
@@ -61,8 +66,10 @@ class Tuner {
             const std::string& param_ils_instance_file,
             const std::string& solver_log_file,
             int nb_initial_selected_parameters,
+            int nb_parameter_to_evaluate_expansion,
             int nb_threads_solver,
-            double cutoff_solver_time
+            double cutoff_solver_time,
+            int nb_workers
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -72,10 +79,11 @@ class Tuner {
             nb_initial_selected_parameters_(nb_initial_selected_parameters),
             nb_threads_solver_(nb_threads_solver),
             cutoff_solver_time_(cutoff_solver_time),
+            nb_workers_(nb_workers),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_),
-            expansion_(logger_, memory_, parameter_space_, instance_file_, solver_log_file_, iteration_, 20, nb_threads_solver_, cutoff_solver_time_), // Evaluation budget set to 10 as placeholder
+            exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 
@@ -92,6 +100,63 @@ class Tuner {
             return *best_config;
         }
 
+        /** @brief Write the history of evaluated configurations to some files for analysis */
+        void writeConfigurationsHistoryToFiles(const std::string& filename) const {
+            memory_.exportEvaluationLogCSV(filename + "_evaluation_log.csv");
+            memory_.exportUniqueConfigsCSV(filename + "_unique_configs.csv");
+        }
 };
+
+#ifdef USE_MPI
+struct WorkerOrder {
+    int step;
+    int iteration;
+};
+
+class Worker {
+    private:
+        int worker_id_;
+        int worker_step_;                     ///< Current step of the worker (0: waiting order, 1: exploration, 2: expansion, 3: finished)
+        int iteration_;                        ///< Current iteration of the tuning process
+        std::string instance_file_;
+        std::string solver_log_file_;
+        int nb_threads_solver_;
+        double cutoff_solver_time_;
+
+        std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
+        std::unique_ptr<ExpansionWorker> expansion_worker_ = nullptr;
+
+        void setLocalSearchWorker(std::unique_ptr<LocalSearchWorker> worker) {
+            local_search_worker_ = std::move(worker);
+        }
+
+        void setExpansionWorker(std::unique_ptr<ExpansionWorker> worker) {
+            expansion_worker_ = std::move(worker);
+        }
+
+        bool stopConditionMet() {
+            return worker_step_ == 3;
+        }
+
+        void receiveOrderFromMaster();
+
+        void runExplorationPhase();
+
+        void runExpansionPhase();
+
+    public:
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time)
+            : worker_id_(worker_id),
+              worker_step_(0),
+              iteration_(1),
+              instance_file_(instance_file),
+              solver_log_file_(solver_log_file),
+              nb_threads_solver_(nb_threads_solver),
+              cutoff_solver_time_(cutoff_solver_time)
+        {}
+
+        void run(); // Run the worker process
+};
+#endif // USE_MPI
 
 #endif // TUNER_H

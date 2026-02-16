@@ -6,6 +6,10 @@
 #include "../include/tuner.h"
 #include "../include/parameter.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -192,11 +196,26 @@ void Tuner::run() {
         
         // Check stopping condition
         if (stopConditionMet()) {
+#ifdef USE_MPI
+            sendStopOrderToWorkers();
+#endif
             break;
         }
 
         // Expansion phase
         expansion_.run();
+
+        // Check stopping condition
+        if (memory_.getBestConfiguration() != nullptr) {
+            double best_objective = memory_.getBestConfiguration()->getObjective();
+            if (best_objective <= 0.01) {
+                logger_.info("Stopping condition met: satisfactory objective value achieved (", best_objective, ").");
+#ifdef USE_MPI
+                sendStopOrderToWorkers();
+#endif
+                break;
+            }
+        }
 
         // Pruning phase
         pruning_.run();
@@ -207,3 +226,60 @@ void Tuner::run() {
     }
     logger_.info("Tuner run complete.");
 }
+
+#ifdef USE_MPI
+void Tuner::sendStopOrderToWorkers() {
+    logger_.info("Sending stop order to all worker processes.");
+    WorkerOrder stop_order;
+    stop_order.step = 3; // 3 indicates stop
+    stop_order.iteration = iteration_;
+    MPI_Bcast(&stop_order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
+    logger_.info("Stop order sent to all worker processes.");
+}
+
+void Worker::run() {
+    std::cout << "Worker " << worker_id_ << " starting." << std::endl;
+    while (true) {
+        receiveOrderFromMaster();
+        if (stopConditionMet()) {
+            break;
+        }
+        if (worker_step_ == 1) {
+            runExplorationPhase();
+        } else if (worker_step_ == 2) {
+            runExpansionPhase();
+        }
+    }
+    std::cout << "Worker " << worker_id_ << " finished." << std::endl;
+}
+
+void Worker::receiveOrderFromMaster() {
+    // Implementation to receive order from master process, this means updating worker_step_ and iteration_
+    // Worker waits two ints from master: worker_step_ and iteration_
+    WorkerOrder order;
+    MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
+    worker_step_ = order.step;
+    iteration_ = order.iteration;
+    std::cout << "Worker " << worker_id_ << " received order for step " << worker_step_ << "." << std::endl;
+}
+
+void Worker::runExplorationPhase() {
+    std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
+    setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_));
+    local_search_worker_->run();
+    MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
+    worker_step_ = 0; // Set to waiting state
+    std::cout << "Worker " << worker_id_ << " completed exploration phase." << std::endl;
+}
+
+void Worker::runExpansionPhase() {
+    std::cout << "Worker " << worker_id_ << " running expansion phase for iteration " << iteration_ << "." << std::endl;
+    std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    // Implementation of expansion phase logic
+    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_));
+    expansion_worker_->run();
+    MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
+    worker_step_ = 0; // Set to waiting state
+    std::cout << "Worker " << worker_id_ << " completed expansion phase." << std::endl;
+}
+#endif
