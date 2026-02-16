@@ -23,7 +23,7 @@ struct TunerOptions {
     std::string instance_file = "./cplex/30n20b8.mps";
     std::string param_ils_instance_file = "./cplex/instances.txt";
     std::string solver_log_file = "./tuner_working_dir/solver/cplex.log";
-    int nb_initial_selected_parameters = 11;
+    int nb_initial_selected_parameters = 12;
     int nb_parameter_to_evaluate_expansion = 20;
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;

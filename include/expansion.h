@@ -42,6 +42,8 @@ class Expansion {
         int nb_threads_solver_;
         double cutoff_solver_time_;
 
+        const Configuration* best_actual_config_ = nullptr;
+
         const std::vector<std::reference_wrapper<Parameter>> selectParameters();
 
         const std::vector<CreateConfigurationsOutput> createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters);

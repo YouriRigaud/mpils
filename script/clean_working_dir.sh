@@ -7,3 +7,6 @@ find "$WORKING_DIR" -type f -delete
 find "$WORKING_DIR/param_ils" -maxdepth 1 -type d -name "paramils-out*" -exec rm -rf {} +
 echo "Cleaned working directory: $WORKING_DIR"
 
+# Clean clone*.log cplex files and cplex.log
+find . -type f \( -name "clone*.log" -o -name "cplex.log" \) -delete
+echo "Cleaned clone*.log and cplex.log files"

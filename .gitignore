@@ -54,3 +54,7 @@
 
 # Cplex log files
 *.log
+
+# instance files
+*.mps
+/cplex/instances.txt

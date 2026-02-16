@@ -25,6 +25,8 @@
 #include <memory>
 #include <fstream>
 
+#define MAX_OBJECTIVE_VALUE 100.0
+
 /**
  * @brief Class representing a configuration.
  * 
@@ -122,10 +124,10 @@ class Configuration {
             time_evaluated_ = time_evaluated;
         }
 
-        /** @brief Scale the objective value if it exceeds 100 */
+        /** @brief Scale the objective value if it exceeds MAX_OBJECTIVE_VALUE */
 	    void scaleObjective() {
-	        if (objective_ > 100) {
-	            objective_ = 100;
+	        if (objective_ > MAX_OBJECTIVE_VALUE) {
+	            objective_ = MAX_OBJECTIVE_VALUE;
 	        }
 	    }
 

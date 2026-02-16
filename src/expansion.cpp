@@ -17,6 +17,12 @@
 void Expansion::run() {
     logger_.info("Starting expansion phase...");
 
+    best_actual_config_ = memory_.getBestConfiguration();
+    if (best_actual_config_ == nullptr) {
+            logger_.info("No best configuration in memory, cannot start expansion phase at iteration ", iteration_, ".");
+            return;
+    }
+
     const std::vector<std::reference_wrapper<Parameter>> expansion_parameters = selectParameters();
     if (expansion_parameters.empty()) {
         logger_.info("No expansion parameters selected, skipping expansion.");
@@ -232,16 +238,9 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
         const auto& configurations = eval_output.configurations;
 
         // Simple classification logic: if the best configuration with this parameter is better than the best overall, select it
-        const Configuration* best_config = memory_.getBestConfiguration();
-        if (best_config == nullptr) {
-            logger_.info("No best configuration in memory, cannot classify parameter ", param.getName());
-            classified_parameters.push_back({param, false, false});
-            continue;
-        }
-
         //TODO: More sophisticated classification logic can be implemented here
 
-        double best_objective = best_config->getObjective();
+        double best_actual_objective = best_actual_config_->getObjective();
         double param_best_objective = std::numeric_limits<double>::max();
         for (const auto& config : configurations) {
             if (config.getObjective() < param_best_objective) {
@@ -249,8 +248,8 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
             }
         }
 
-        bool toSelect = param_best_objective < best_objective;
-        bool toDiscard = !toSelect && (param_best_objective >= best_objective * 1.0); // Discard if significantly worse
+        bool toSelect = param_best_objective < best_actual_objective;
+        bool toDiscard = !toSelect && (param_best_objective >= best_actual_objective * 1.0); // Discard if significantly worse
 
         classified_parameters.push_back({param, toSelect, toDiscard});
     }
@@ -322,7 +321,7 @@ void ExpansionWorker::evaluateConfigurations() {
         double objective_value = solver.getObjectiveValue();
         int elapsed_time = GlobalTimer::elapsedSeconds();
 
-        evaluation_results_.emplace_back(config_id, {objective_value, elapsed_time});
+        evaluation_results_.emplace_back(config_id, std::make_pair(objective_value, elapsed_time));
     }
 }
 
