@@ -46,7 +46,7 @@ LIBS = -lilocplex -lcplex -lconcert -lm -lpthread -larmadillo \
 ALLIANCE_INCLUDES = -I$(ensmallen_include) -I$(mlpack_include)
 ALLIANCE_LIBDIRS  = -L$(mlpack_lib)
 
-.PHONY: all clean mpi
+.PHONY: all clean mpi mpi_alliance
 all: $(TARGET)
 $(TARGET): $(OBJS) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIB_DIRS) $(LIBS)
