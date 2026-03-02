@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "tuner_memory.h"
 #include "parameter_space.h"
+#include "configuration.h"
 
 class Pruning {
     private:

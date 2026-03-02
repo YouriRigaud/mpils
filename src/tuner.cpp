@@ -5,6 +5,7 @@
 
 #include "../include/tuner.h"
 #include "../include/parameter.h"
+#include "../include/tuner_memory.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -122,7 +123,7 @@ void Tuner::writeParametersIdToFile(const Configuration& config, const std::stri
     }
     file << "Name ID" << std::endl;
     int index = 1;
-    for (const auto& pair : config.getConfiguration()) {
+    for (const auto& pair : config.getConfigurationMap()) {
         file << pair.first << "\tP" << index << std::endl;
         index++;
     }
@@ -174,12 +175,9 @@ bool Tuner::stopConditionMet() {
         return true;
     }
 
-    if (memory_.getBestConfiguration() != nullptr) {
-        double best_objective = memory_.getBestConfiguration()->getObjective();
-        if (best_objective <= 0.01) {
-            logger_.info("Stopping condition met: satisfactory objective value achieved (", best_objective, ").");
-            return true;
-        }
+    if (memory_.getBestObjective() <= 0.01) {
+        logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
+        return true;
     }
     
     return false;
@@ -206,15 +204,12 @@ void Tuner::run() {
         expansion_.run();
 
         // Check stopping condition
-        if (memory_.getBestConfiguration() != nullptr) {
-            double best_objective = memory_.getBestConfiguration()->getObjective();
-            if (best_objective <= 0.01) {
-                logger_.info("Stopping condition met: satisfactory objective value achieved (", best_objective, ").");
+        if (memory_.getBestObjective() <= 0.01) {
+            logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
 #ifdef USE_MPI
-                sendStopOrderToWorkers();
+            sendStopOrderToWorkers();
 #endif
-                break;
-            }
+            break;
         }
 
         // Pruning phase
@@ -265,7 +260,11 @@ void Worker::receiveOrderFromMaster() {
 
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
-    setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_));
+    if (worker_id_ == 1) {
+        setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_, true)); // mip start for worker 1
+    } else {
+        setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_));
+    }
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state

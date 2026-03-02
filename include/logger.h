@@ -99,6 +99,16 @@ class Logger {
             if (level_ == Verbosity::Debug)
                 print("[DEBUG]:", std::forward<Args>(args)...);
         }
+
+        /**
+         * @brief Print a warn-level message.
+         * @tparam Args Variadic template parameters for message components.
+         */
+        template<typename... Args>
+        void warn(Args&&... args) const {
+            if (level_ == Verbosity::Normal)
+                print("[WARN]:", std::forward<Args>(args)...);
+        }
 };
 
 #endif // LOGGER_H

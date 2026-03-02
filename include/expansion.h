@@ -20,7 +20,7 @@ struct CreateConfigurationsOutput {
 
 struct EvaluateParameterOutput {
     Parameter& parameter;
-    std::vector<Configuration> configurations;
+    std::vector<EvaluationRecord> evaluations;
 };
 
 struct ClassifyParameterOutput {
@@ -42,7 +42,7 @@ class Expansion {
         int nb_threads_solver_;
         double cutoff_solver_time_;
 
-        const Configuration* best_actual_config_ = nullptr;
+        double best_objective_value_;
 
         const std::vector<std::reference_wrapper<Parameter>> selectParameters();
 

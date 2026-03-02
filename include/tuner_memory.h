@@ -2,12 +2,12 @@
  * @file tuner_memory.h
  * @brief Represents the memory component of the tuner.
  *
- * The memory module is responsible for storing all the configurations of the Tuner tested,
- * including their parameter values and objective value if evaluated by the solver.
- * It also keeps track of the best configuration found.
+ * The memory module is responsible for storing all the configurations of the Tuner evaluated.
+ * It has an evaluation history, it provides statistics about the configurations, and it keeps track of the best configuration found.
+ * The memory also stores the history of MIP starts generated and used, to be able to analyze their impact on the tuning process.
  *
  * @author Youri Rigaud
- * @copyright Copyright 2025 Youri Rigaud. All rights reserved.
+ * @copyright Copyright 2026 Youri Rigaud. All rights reserved.
  *            This software is licensed under the GNU General Public License v3.0.
  *            See the accompanying LICENSE file for full details.
  */
@@ -15,181 +15,79 @@
 #ifndef TUNER_MEMORY_H
 #define TUNER_MEMORY_H
 
+#include "configuration.h"
 #include "parameter.h"
 #include "logger.h"
 #include "globaltimer.h"
 
 #include <map>
+#include <vector>
+#include <unordered_map>
 #include <unordered_set>
 #include <stdexcept>
 #include <memory>
 #include <fstream>
+#include <optional>
+#include <limits>
+#include <algorithm>
+#include <string>
 
-#define MAX_OBJECTIVE_VALUE 100.0
+static constexpr double kMaxObjective = 100.0;
+
+using EvaluationId = uint64_t;
+using MipStartId = uint64_t;
 
 /**
- * @brief Class representing a configuration.
- * 
- * This class stores a map of the parameter names to their values,
- * the objective value if evaluated, and a flag indicating if it has been evaluated.
- * Normally, the configuration is always evaluated pretty much right after being created.
+ * @brief Struct representing statistics about a configuration.
  */
-class Configuration {
-    private:
-        std::map<std::string, Value> configuration_; ///< Map of parameter names to their values
-        double objective_;                           ///< Objective value if evaluated
-        bool evaluated_;                             ///< Flag indicating if the configuration has been evaluated
-        int time_evaluated_;                         ///< Time when the configuration was evaluated (in seconds since tuning started)
-    
-    public:
-        /**
-         * @brief Default constructor for Configuration.
-         * Creates an unevaluated configuration.
-         */
-        Configuration() : evaluated_(false) {}
-
-        /**
-         * @brief Construct a Configuration object.
-         * @param configuration Map of parameter names to their values.
-         */
-        Configuration(std::map<std::string, Value> configuration): configuration_(configuration), evaluated_(false) {}
-
-        /**
-         * @brief Construct a Configuration object with an objective value.
-         * @param configuration Map of parameter names to their values.
-         * @param objective     Objective value.
-         */
-        Configuration(
-            std::map<std::string, Value> configuration,
-            double objective
-        ): configuration_(configuration), objective_(objective), evaluated_(true) {
-            scaleObjective();
-            time_evaluated_ = GlobalTimer::elapsedSeconds();
-	    }
-
-        /**
-         * @brief Construct a Configuration object with an objective value.
-         * @param configuration Map of parameter names to their values.
-         * @param objective     Objective value.
-         * @param time_evluated Time when the configuration was evaluated.
-         */
-        Configuration(
-            std::map<std::string, Value> configuration,
-            double objective,
-            int time_evaluated
-        ): configuration_(configuration), objective_(objective), evaluated_(true), time_evaluated_(time_evaluated) {
-            scaleObjective();
-	    }
-
-        /** @brief Get the configuration map */
-        std::map<std::string, Value> getConfiguration() const { return configuration_; }
-
-        /** @brief Get the objective value */
-        double getObjective() const { return objective_; }
-
-        /** @brief Get the time when the configuration was evaluated */
-        int getTime() const { return time_evaluated_; }
-
-        /** @brief Check if the configuration has been evaluated */
-        bool isEvaluated() const { return evaluated_; }
-
-        /**
-         * @brief Set the objective value and mark as evaluated.
-         * @param objective Objective value to set.
-         * @throws std::runtime_error if the configuration has already been evaluated.
-         */
-        void setObjective(double objective) {
-            if (evaluated_) {
-                throw std::runtime_error("Configuration has already been evaluated.");
-            }
-            objective_ = objective;
-            scaleObjective();
-            evaluated_ = true;
-            time_evaluated_ = GlobalTimer::elapsedSeconds();
-        }
-
-        /**
-         * @brief Set the objective value and mark as evaluated.
-         * @param objective Objective value to set.
-         * @param time_evaluated Time when the configuration was evaluated.
-         * @throws std::runtime_error if the configuration has already been evaluated.
-         */
-        void setObjective(double objective, int time_evaluated) {
-            if (evaluated_) {
-                throw std::runtime_error("Configuration has already been evaluated.");
-            }
-            objective_ = objective;
-            scaleObjective();
-            evaluated_ = true;
-            time_evaluated_ = time_evaluated;
-        }
-
-        /** @brief Scale the objective value if it exceeds MAX_OBJECTIVE_VALUE */
-	    void scaleObjective() {
-	        if (objective_ > MAX_OBJECTIVE_VALUE) {
-	            objective_ = MAX_OBJECTIVE_VALUE;
-	        }
-	    }
-
-        /** @brief Equality operator based on configuration map */
-        bool operator==(const Configuration& other) const {
-            return configuration_ == other.configuration_;
-        }
-
-        /** @brief Hash function for Configuration to be used in unordered_set */
-        struct HashFunction {
-            std::size_t operator()(const Configuration& config) const {
-                std::size_t seed = 0;
-                for (const auto& pair : config.getConfiguration()) {
-                    seed ^= std::hash<std::string>()(pair.first) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-                    // Simple hash for Value based on its string representation
-                    seed ^= std::hash<std::string>()(pair.second.getString()) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-                }
-                return seed;
-            }
-        };
-
-        void printConfiguration(std::ostream& out) const {
-            out << "Configuration: ";
-            for (const auto& pair : configuration_) {
-                out << pair.first << "=" << pair.second.getString() << " ";
-            }
-            if (evaluated_) {
-                out << "| Objective: " << objective_;
-            } else {
-                out << "| Objective: Not evaluated";
-            }
-            out << std::endl;
-        }
-
-        void generateConfigFile(const std::string& filename) const {
-            std::ofstream file(filename);
-            if (!file.is_open()) {
-                throw std::runtime_error("Could not open file to write configuration: " + filename);
-            }
-            for (const auto& pair : configuration_) {
-                file << pair.first << " " << pair.second.getString() << std::endl;
-            }
-            file.close();
-        }
-
-        std::size_t getConfigId() const {
-            return HashFunction()(*this);
-        }
-
+struct ConfigurationStats {
+    int nb_evaluations = 0;
+    double best_objective = std::numeric_limits<double>::max();
+    std::optional<EvaluationId> best_evaluation_id;
 };
 
 /**
  * @brief Struct representing a record of an evaluated configuration.
  */
 struct EvaluationRecord {
-    int eval_id;
-    int time_evaluated;
+    EvaluationId evaluation_id;
     double objective_value;
-    std::size_t config_id;
+    int time_evaluated;
+    ConfigurationId configuration_id;
+
+    bool mip_start_used;
+    std::optional<MipStartId> used_mip_start_id;
+    std::optional<EvaluationId> mip_start_source_evaluation_id;
+    
+    bool produced_mip_start;
+    std::optional<MipStartId> produced_mip_start_id;
+    
     int worker_id;
     int iteration;
     int phase; // 0 for exploration, 1 for expansion
+};
+
+/**
+ * @brief Struct representing a record of a MIP start generated.
+ */
+struct MipStartRecord {
+    MipStartId mip_start_id;
+    std::string mip_start_file;
+    EvaluationId evaluation_id; // Evaluation that produced this MIP start
+};
+
+struct RecordEvaluationOptions {
+    double objective_value = -1.0;    /// Objective value obtained from the evaluation. If not evaluated, can be set to -1.0 or any negative value.
+    int time_evaluated = -1;    /// Time when the configuration was evaluated (in seconds since tuning started).
+    int worker_id = -1;         /// ID of the worker that performed the evaluation (for logging purposes).
+    int iteration = -1;         /// Iteration number during which the evaluation was performed (for logging purposes).
+    int phase = -1;             /// Phase of the tuning process during which the evaluation was performed (0 for exploration, 1 for expansion).
+    
+    bool mip_start_used = false;                                                /// Flag indicating if a MIP start was used for this evaluation.
+    std::optional<MipStartId> used_mip_start_id = std::nullopt;                 /// Optional ID of the MIP start used, if any.
+    std::optional<EvaluationId> mip_start_source_evaluation_id = std::nullopt;  /// Optional ID of the evaluation that produced the MIP start used, if any.
+    bool produced_mip_start = false;                                            /// Flag indicating if this evaluation produced a MIP start for future evaluations.
+    std::string mip_start_file;                                                 /// If produced_mip_start is true, the file path of the MIP start generated.
 };
 
 /**
@@ -203,120 +101,162 @@ class TunerMemory {
     private:
         Logger& logger_;
 
-        std::unordered_set<Configuration, Configuration::HashFunction> configurations_;                     ///< Set of all configurations tested
-        std::unordered_set<Configuration, Configuration::HashFunction>::const_iterator best_configuration_; ///< Iterator to the best configuration
-        std::vector<EvaluationRecord> evaluation_history_;                                                  ///< History of evaluated configurations
+        std::unordered_map<ConfigurationId, Configuration> configurations_by_id_;                     ///< Map of all configurations stored, indexed by their hash ID
+        std::unordered_map<ConfigurationId, ConfigurationStats> stats_by_id_;               ///< Map of configuration statistics, indexed by configuration hash ID
+        std::vector<EvaluationRecord> evaluations_;                                                  ///< History of the evaluations performed, in chronological order
+        
+        std::unordered_map<MipStartId, MipStartRecord> mip_starts_by_id_;                   ///< Map of MIP start records indexed by their ID
 
-        Configuration default_configuration_; ///< Default configuration (unevaluated)
-        int next_eval_id_ = 1;                ///< Counter for assigning unique evaluation IDs
+        std::optional<uint64_t> best_evaluation_index_;                 ///< Index of the best evaluation in the evaluations_ vector
+        double best_objective_ = std::numeric_limits<double>::max(); ///< Best objective value found so far
 
-        /** @brief Print information about a new best configuration found */
-        void printNewBestConfiguration(const Configuration& config) {
-            logger_.info("***************");
-            logger_.info("New best configuration found at time ", config.getTime(), "s, with objective ", config.getObjective());
-            logger_.info("With config: ");
-            config.printConfiguration(logger_.getOutputStream());
-            logger_.info("***************");
-        }
+        std::optional<uint64_t> best_evaluation_without_mip_start_index_;                ///< Index of the best evaluation in the evaluations_ vector that did not use MIP start
+        double best_objective_without_mip_start_ = std::numeric_limits<double>::max(); ///< Best objective value found so far among evaluations that did not use MIP start
+
+        Configuration default_configuration_;       ///< Default configuration
+        EvaluationId next_evaluation_id_ = 1;                ///< Counter for assigning unique evaluation IDs
+        MipStartId next_mip_start_id_ = 1;                      ///< Counter for assigning unique MIP start IDs
     
+        static double clampObjective_(double objective) { return std::min(objective, kMaxObjective); } ///< Clamp the objective value to a maximum threshold kMaxObjective
+
+        ConfigurationId ensureConfigurationStored_(const Configuration& config); ///< Ensure that a configuration is stored in memory and return its ID. If the configuration already exists, return the existing ID.
+
+        EvaluationRecord createEvaluationRecord_(const RecordEvaluationOptions& options, const ConfigurationId config_id, const EvaluationId eval_id); ///< Create an evaluation record from a configuration and the provided options.
+
+        void updateBestEvaluation_(const EvaluationRecord& record); ///< Update the best evaluation found based on a new evaluation record.
+        
+        void updateStatsForConfiguration_(const EvaluationRecord& record); ///< Update the statistics for a configuration based on a new evaluation record.
+    
+        void updateMipStartRecords_(const EvaluationRecord& record, const std::string& mip_start_file); ///< Update the MIP start records based on a new evaluation record that has produced a MIP start.
+
+        void logNewBestEvaluation_(const EvaluationRecord& record); ///< Print a log message when a new best evaluation is found, with details about the evaluation and the configuration.
+
     public:
         /** @brief Construct a TunerMemory object */
-        TunerMemory(Logger& logger): logger_(logger), best_configuration_(configurations_.end()) {}
+        TunerMemory(Logger& logger): logger_(logger) {}
 
-        /**
-         * @brief Add a configuration to the memory.
-         * @param config Configuration to add.
-         * @param worker_id ID of the worker that evaluated the configuration (for logging purposes).
-         * @throws std::runtime_error if the configuration is not evaluated.
-         * @note Only evaluated configurations can be added to the memory.
-         * If the configuration already exists and the new one has a better objective, it updates the stored configuration.
-         * If it is the best configuration, the best_configuration_ iterator will be updated.
-         */
-        void addConfiguration(const Configuration& config, int worker_id, int iteration, int phase) {
-            EvaluationRecord r = {
-                .eval_id = next_eval_id_++,
-                .time_evaluated = config.getTime(),
-                .objective_value = config.getObjective(),
-                .config_id = config.getConfigId(),
-                .worker_id = worker_id,
-                .iteration = iteration,
-                .phase = phase
-            };
-            evaluation_history_.push_back(r);
-
-            if (!config.isEvaluated()) {
-                throw std::runtime_error("Cannot add unevaluated configuration to memory.");
-            }
-
-            auto [it, inserted] = configurations_.insert(config);
-
-            // If the configuration already exists but the new one has a better objective, update it
-            if (!inserted) {
-                if (config.getObjective() < it->getObjective()) {
-                    configurations_.erase(it);
-                    it = configurations_.insert(config).first;
-                }
-            }
-
-            // Update best configuration if necessary
-            if (best_configuration_ == configurations_.end() || config.getObjective() < best_configuration_->getObjective()) {
-                best_configuration_ = it;
-                printNewBestConfiguration(*best_configuration_);
-            }
-
-            logger_.debug("Added configuration to memory with objective: ", config.getObjective(), ". Total stored: ", configurations_.size());
-        }
-
-        /**
-         * @brief Add multiple configurations to the memory.
-         * @param configs Vector of configurations to add.
-         * @param worker_id ID of the worker that evaluated the configurations (for logging purposes).
-         * @note This method calls addConfiguration for each configuration in the vector.
-         */
-        void addConfigurations(const std::vector<Configuration>& configs, int worker_id = -1, int iteration = -1, int phase = -1) {
-            for (const auto& config : configs) {
-                addConfiguration(config, worker_id, iteration, phase);
-            }
-            logger_.info("Added ", configs.size(), " configurations to memory. Total stored: ", configurations_.size());
-        }
-
-        /** @brief Get the configurations stored */
-        const std::unordered_set<Configuration, Configuration::HashFunction>& getConfigurations() const {
-            return configurations_;
-        }
-
-        /** @brief Get a pointer to the best configuration */
-        const Configuration* getBestConfiguration() const {
-            if (best_configuration_ == configurations_.end()) {
-                return nullptr;
-            }
-            return &(*best_configuration_);
-        }
-
-        /** @brief Get the default configuration (unevaluated) */
-        const Configuration& getDefaultConfiguration() const {
-            return default_configuration_;
-        }
-
-        /** @brief Set the default configuration (unevaluated) */
+        /** @brief Set the default configuration */
         void setDefaultConfiguration(const Configuration& config) {
             default_configuration_ = config;
         }
 
-        /** @brief Print the trace of evaluated configs. */
+        /** @brief Get the default configuration */
+        const Configuration& getDefaultConfiguration() const {
+            return default_configuration_;
+        }
+
+        /**
+         * @brief Add a configuration evaluation to the memory.
+         * @param config Configuration that was evaluated.
+         * @param options Struct containing optional parameters for the evaluation record. See RecordEvaluationOptions for details.
+         * @return The unique ID assigned to this evaluation record.
+         */
+        EvaluationId recordEvaluation(const Configuration& config, const RecordEvaluationOptions& options = RecordEvaluationOptions());
+
+        /**
+         * @brief Set the file path of a MIP start generated from an evaluation.
+         * @param mip_start_file Path to the MIP start file generated.
+         * @param mip_start_id ID of the MIP start for which to set the file path.
+         * @return True if the MIP start ID was found and the file path was set, false otherwise.
+         */
+        bool setMipStartFile(const std::string& mip_start_file, MipStartId mip_start_id);
+
+        //TODO Change that 
+        MipStartId getMipStartToUse() {
+            return next_mip_start_id_ - 1; // The next MIP start ID to use is the last one that was generated, which is next_mip_start_id_ - 1
+        }
+
+        /** @brief Get the evaluation from its ID */
+        const EvaluationRecord* getEvaluationById(EvaluationId eval_id) const {
+            auto it = std::find_if(evaluations_.begin(), evaluations_.end(),
+                                   [eval_id](const EvaluationRecord& record) { return record.evaluation_id == eval_id; });
+            if (it == evaluations_.end()) {
+                return nullptr;
+            }
+            return &(*it);
+        }
+
+        /** @brief Get the best evaluation record found so far, or nullptr if no evaluation has been recorded yet */
+        const EvaluationRecord* getBestEvaluation() const {
+            if (!best_evaluation_index_.has_value()) {
+                return nullptr;
+            }
+            return &evaluations_[best_evaluation_index_.value()];
+        }
+
+        /** @brief Get the best evaluation record found so far that did not use MIP start, or nullptr if no such evaluation exists */
+        const EvaluationRecord* getBestEvaluationWithoutMipStart() const {
+            if (!best_evaluation_without_mip_start_index_.has_value()) {
+                return nullptr;
+            }
+            return &evaluations_[best_evaluation_without_mip_start_index_.value()];
+        }
+
+        /** @brief Get the best configuration found so far, or nullptr if no configuration has been evaluated yet */
+        const Configuration* getBestConfiguration() const {
+            const EvaluationRecord* best_eval = getBestEvaluation();
+            if (best_eval == nullptr) {
+                return nullptr;
+            }
+            return &configurations_by_id_.at(best_eval->configuration_id);
+        }
+
+        /** @brief Get the best configuration found so far that did not use MIP start, or nullptr if no such configuration exists */
+        const Configuration* getBestConfigurationWithoutMipStart() const {
+            const EvaluationRecord* best_eval = getBestEvaluationWithoutMipStart();
+            if (best_eval == nullptr) {
+                return nullptr;
+            }
+            return &configurations_by_id_.at(best_eval->configuration_id);
+        }
+
+        /** @brief Get a configuration by its ID, throws an exception if the ID is not found */
+        const Configuration& getConfigurationById(ConfigurationId config_id) const {
+            auto it = configurations_by_id_.find(config_id);
+            if (it == configurations_by_id_.end()) {
+                throw std::runtime_error("Configuration ID not found in memory: " + std::to_string(config_id));
+            }
+            return it->second;
+        }
+
+        /** @brief Get the statistics of a configuration by its ID, throws an exception if the ID is not found */
+        const ConfigurationStats& getConfigurationStatsById(ConfigurationId config_id) const {
+            auto it = stats_by_id_.find(config_id);
+            if (it == stats_by_id_.end()) {
+                throw std::runtime_error("Configuration ID not found in memory for stats: " + std::to_string(config_id));
+            }
+            return it->second;
+        }
+
+        /** @brief Get the best objective value found so far */
+        double getBestObjective() const {
+            return best_objective_;
+        }
+
+        /** @brief Get the best objective value found so far among evaluations that did not use MIP start */
+        double getBestObjectiveWithoutMipStart() const {
+            return best_objective_without_mip_start_;
+        }
+
         void exportEvaluationLogCSV(const std::string& filename) const {
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write evaluation log: " + filename);
             }
             // Write header
-            file << "EvalID,TimeEvaluated,ObjectiveValue,ConfigID,WorkerID,Iteration,Phase\n";
+            file << "EvalID,TimeEvaluated,ObjectiveValue,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
             // Write records
-            for (const auto& record : evaluation_history_) {
-                file << record.eval_id << ","
+            for (const auto& record : evaluations_) {
+                file << record.evaluation_id << ","
                      << record.time_evaluated << ","
                      << record.objective_value << ","
-                     << record.config_id << ","
+                     << record.configuration_id << ",";
+                if (record.mip_start_used) {
+                    file << (record.used_mip_start_id.has_value() ? std::to_string(record.used_mip_start_id.value()) : "null");
+                } else {
+                    file << "null";
+                }
+                file << ","
                      << record.worker_id << ","
                      << record.iteration << ","
                      << record.phase << "\n";
@@ -324,23 +264,59 @@ class TunerMemory {
             file.close();
         }
 
-        /** @brief Print all the configs from memory */
         void exportUniqueConfigsCSV(const std::string& filename) const {
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write unique configurations: " + filename);
             }
             // Write header
-            file << "ConfigID,Configuration\n";
+            file << "ConfigID,UseMipStart,Configuration\n";
             // Write unique configurations
-            for (const auto& config : configurations_) {
-                file << config.getConfigId() << ",";
-                for (const auto& pair : config.getConfiguration()) {
-                    file << pair.first << "=" << pair.second.getString() << " ";
+            for (const auto& [config_id, config] : configurations_by_id_) {
+                file << config_id << "," << (config.useMipStart() ? "1" : "0") << ",";
+                const auto& config_map = config.getConfigurationMap();
+                size_t count = 0;
+                for (const auto& pair : config_map) {
+                    file << pair.first << "=" << pair.second.getString();
+                    if (count < config_map.size() - 1) {
+                        file << ";";
+                    }
+                    count++;
+                }
+                file << "\n";
+            }
+        }
+
+        void exportUniqueMipStartsCSV(const std::string& filename) const {
+            std::ofstream file(filename);
+            if (!file.is_open()) {
+                throw std::runtime_error("Could not open file to write unique MIP starts: " + filename);
+            }
+            // Write header
+            file << "MipStartID,MipStartFile,SourceEvalID\n";
+            // Write unique MIP starts
+            for (const auto& [mip_start_id, mip_start] : mip_starts_by_id_) {
+                file << mip_start_id << "," << mip_start.mip_start_file << ",";
+                if (mip_start.evaluation_id > 0) {
+                    file << mip_start.evaluation_id;
+                } else {
+                    file << "null";
                 }
                 file << "\n";
             }
             file.close();
+        }
+
+        /** @brief Get all the configurations stored in memory along with their best objective value */
+        std::vector<std::pair<Configuration, double>> getAllConfigurationsWithObjectives() const {
+            std::vector<std::pair<Configuration, double>> configs_with_objectives;
+            for (const auto& [config_id, config] : configurations_by_id_) {
+                const ConfigurationStats& stats = stats_by_id_.at(config_id);
+                if (stats.nb_evaluations > 0) {
+                    configs_with_objectives.emplace_back(config, stats.best_objective);
+                }
+            }
+            return configs_with_objectives;
         }
 };
 

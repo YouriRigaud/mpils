@@ -6,6 +6,11 @@
 #include "../include/pruning.h"
 #include "../include/learner.h"
 
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <algorithm>
+
 void Pruning::run() {
     logger_.info("Starting pruning phase...");
 
@@ -27,11 +32,12 @@ void Pruning::writeLearnerFile(const std::string& learner_file) {
     }
 
     // Write configurations and their objective values from memory
-    for (const auto& config : memory_.getConfigurations()) {
-        for (const auto& pair : config.getConfiguration()) {
-            file << pair.second.getString() << ", ";
+    for (const auto& [config, obj] : memory_.getAllConfigurationsWithObjectives()) {
+        for (const auto& [param_name, value] : config.getConfigurationMap()) {
+            file << value.getString();
+            file << ",";
         }
-        file << config.getObjective() << "\n";
+        file << obj << "\n";
     }
 
 

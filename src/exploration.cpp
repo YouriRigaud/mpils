@@ -6,6 +6,7 @@
 #include "../include/exploration.h"
 #include "../include/tuner.h"
 #include "../include/globaltimer.h"
+#include "../include/solver.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -14,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <filesystem>
 
 void Exploration::updateTunedParameters() {
     for (auto& param : parameter_space_.getParameters()) {
@@ -90,34 +92,42 @@ void Exploration::run() {
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
 
-    setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations, parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
+    setEngine(std::make_unique<ParamILSEngine>(memory_, logger_, initial_configurations, parameter_space_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
 
 
     if (!engine_) {
         logger_.info("No local search engine set for exploration.");
-        setEngine(std::make_unique<ParamILSEngine>(logger_, initial_configurations, parameter_space_, instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
+        setEngine(std::make_unique<ParamILSEngine>(memory_, logger_, initial_configurations, parameter_space_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
         logger_.info("Default ParamILSEngine has been set.");
     }
     
-    const std::vector<std::pair<int, std::vector<Configuration>>> configs = engine_->run();
+    const std::vector<std::pair<int, std::vector<EvaluationRecord>>> evaluations = engine_->run();
 
-    int nb_configs = 0;
-    for (const auto& config_pair : configs) {
-        int worker_id = config_pair.first;
-        const std::vector<Configuration>& worker_configs = config_pair.second;
-        memory_.addConfigurations(worker_configs, worker_id, iteration_, 0); // Phase 0 for exploration
-        nb_configs += worker_configs.size();
+    nb_evaluations = 0;
+    for (const auto& evaluation_pair : evaluations) {
+        int worker_id = evaluation_pair.first;
+        const std::vector<EvaluationRecord>& worker_evaluations = evaluation_pair.second;
+      //  memory_.addConfigurations(worker_configs, worker_id, iteration_, 0); // Phase 0 for exploration
+        nb_evaluations += worker_evaluations.size();
     }
     
-    logger_.info("Added", nb_configs, " configurations to memory from exploration phase at iteration ", iteration_);
+    logger_.info("Added", nb_evaluations, " evaluations to memory from exploration phase at iteration ", iteration_);
 
     logger_.info("Exploration phase completed.");
 }
 
-std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::run() {
+std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
+    if (iteration_ > 1) {
+        mip_start_ = true;
+    }
+    logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
     
+    if (mip_start_) {
+        setMipStartFile();
+    }
+
     writeParamILSParameterFiles();
     writeParamILSScenarioFiles();
 
@@ -130,7 +140,7 @@ std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::run() {
     waitLocalSearchWorkers();
 #endif
 
-    std::vector<std::pair<int, std::vector<Configuration>>> results = getParamILSResults();
+    std::vector<std::pair<int, std::vector<EvaluationRecord>>> results = getParamILSResults();
 
     logger_.info("ParamILS Engine completed.");
     return results;
@@ -141,7 +151,10 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int work
     std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
 
     for (auto& param : parameter_space_.getParameters()) {
-        const Value initial_value = initial_configurations_[worker_id].getConfiguration().at(param.getName());
+        Value initial_value = initial_configurations_[worker_id].getConfigurationMap().at(param.getName());
+        if (worker_id == 1 && mip_start_ && !mip_start_file_.empty()) { // We use the same initial configuration for worker 1 as worker 0 but with a mip start 
+            initial_value = initial_configurations_[0].getConfigurationMap().at(param.getName());
+        }
         myfile << param.getName() << " {";
         if (param.isTuned()) {
             const auto& values = param.getValues();
@@ -174,6 +187,10 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int work
     }
     myfile << "process_mpi { " << worker_id << " } [ " << worker_id << " ]" << std::endl;
     myfile << "iteration { " << iteration_ << " } [ " << iteration_ << " ]" << std::endl;
+    
+    if (worker_id == 1 && mip_start_ && !mip_start_file_.empty()) {
+        myfile << "mip_start { " << mip_start_file_ << " } [ " << mip_start_file_ << " ]" << std::endl;
+    }
 }
 
 void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile, int worker_id) {
@@ -187,7 +204,7 @@ void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile, int work
         for (const auto& pair : tuple) {
             const std::string& param_name = pair.first;
             const Value& forbidden_value = pair.second;
-            if (initial_config.getConfiguration().at(param_name).getString() == forbidden_value.getString()) {
+            if (initial_config.getConfigurationMap().at(param_name).getString() == forbidden_value.getString()) {
                 continue;
             } else {
                 is_forbidden = false;
@@ -273,8 +290,8 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         myfile << "logfile = " << solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
         myfile << "paramfile = " << parameter_file_path << std::endl;
         myfile << "outdir = " + param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
-        myfile << "instance_file = " << instance_file_ << std::endl;
-        myfile << "test_instance_file = " << instance_file_ << std::endl;
+        myfile << "instance_file = " << param_ils_instance_file_ << std::endl;
+        myfile << "test_instance_file = " << param_ils_instance_file_ << std::endl;
         myfile.close();
     }
 
@@ -296,21 +313,21 @@ void ParamILSEngine::callParamILS() {
     logger_.info("ParamILS executable call completed.");
 }
 
-const std::vector<std::pair<int, std::vector<Configuration>>> ParamILSEngine::getParamILSResults() {
+const std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::getParamILSResults() {
     // Implementation to get results from ParamILS
     logger_.info("Retrieving ParamILS results...");
-    std::vector<std::pair<int, std::vector<Configuration>>> results;
+    std::vector<std::pair<int, std::vector<EvaluationRecord>>> results;
     // For each worker, parse its CPLEX log file
     for (int i = 0; i < nb_workers_; ++i) {
-        std::vector<Configuration> worker_results = parseCplexResultsFromLogFile(0, i);
+        std::vector<EvaluationRecord> worker_results = parseCplexResultsFromLogFile(0, i);
         results.insert(results.end(), std::make_pair(i, worker_results));
     }
     logger_.info("ParamILS results retrieved: ", results.size(), " configurations found.");
     return results;
 }
 
-const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile(int run_obj, int worker_id) {
-    std::vector<Configuration> results;
+const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogFile(int run_obj, int worker_id) {
+    std::vector<EvaluationRecord> results;
     double local_search_elapsed_time = 0;
 
     std::string solver_log_worker = solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id);
@@ -350,7 +367,26 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
         }
         int config_elapsed_time = local_search_start_time_ + local_search_elapsed_time;
 
-        results.emplace_back(params, obj, config_elapsed_time);
+        // Record the evaluation result for this configuration
+        RecordEvaluationOptions options;
+        if (worker_id == 1 && mip_start_) {
+            options.mip_start_used = true;
+            options.used_mip_start_id = memory_.getMipStartToUse();
+             logger_.info("Using MIP start with id ", options.used_mip_start_id.value(), " for this evaluation of worker ", worker_id, " at iteration ", iteration_, ".");
+        } else {
+            options.mip_start_used = false;
+        }
+        options.produced_mip_start = false; // Exploration phase does not produce MIP starts
+        options.objective_value = obj;
+        options.time_evaluated = config_elapsed_time;
+        options.worker_id = worker_id;
+        options.phase = 0; // Phase 0 for exploration
+        options.iteration = iteration_;
+
+        EvaluationId eval_id = memory_.recordEvaluation(Configuration(params), options);
+
+        EvaluationRecord eval = *memory_.getEvaluationById(eval_id);
+        results.push_back(eval);
 
         params.clear();
         gap = -1.0;
@@ -442,7 +478,45 @@ const std::vector<Configuration> LocalSearchEngine::parseCplexResultsFromLogFile
     return results;
 }
 
+void LocalSearchEngine::setMipStartFile() {
+    Configuration best_config = memory_.getBestConfiguration() != nullptr ? *memory_.getBestConfiguration() : memory_.getDefaultConfiguration();
+    mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
+    std::string config_path = "tuner_working_dir/config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm";
+    best_config.generateConfigFile(config_path);
+    // Call cplex on the best configuration found so far to generate the mip start file
+    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_start_file_);
+    solver.solve();
+
+    if (!std::filesystem::exists(mip_start_file_)) {
+        logger_.warn("Expected mip start file not found: ", mip_start_file_);
+    }
+
+    double objective_value = solver.getObjectiveValue();
+    int evaluated_time = GlobalTimer::elapsedSeconds();
+    logger_.info("Generated MIP start file for iteration ", iteration_, " with objective value ", objective_value, " and evaluation time ", evaluated_time, " seconds.");
+    RecordEvaluationOptions options;
+    options.mip_start_used = false; // This evaluation is not using a mip start, it is producing one
+    options.objective_value = objective_value;
+    options.time_evaluated = evaluated_time;
+    options.worker_id = 0;
+    options.phase = 0; // Phase 0 for exploration
+    options.iteration = iteration_;
+    options.produced_mip_start = true;
+    options.mip_start_file = mip_start_file_;
+    logger_.info("Producing mip start file path = '", mip_start_file_, "'");
+    memory_.recordEvaluation(best_config, options);
+}
+
 #ifdef USE_MPI
+void ParamILSWorker::callParamILS() {
+    std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
+    std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
+    int ret = system(command.c_str());
+    if (ret != 0) {
+        std::cout << "Error calling ParamILS executable for worker " << worker_id_ << " at iteration " << iteration_ << std::endl;
+    }
+}
+
 void LocalSearchEngine::launchLocalSearchWorkers() {
     logger_.info("Launching Local Search Workers via MPI...");
     // Implementation to launch local search workers using MPI

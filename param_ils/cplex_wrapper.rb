@@ -25,13 +25,13 @@ datetime = t.strftime("%Y-%m-%d %H:%M:%S") # YYYY-MM-DD HH:MM:SS
 datetime2 = t.strftime("%Y-%m-%d_%H:%M:%S") # YYYY-MM-DD_HH:MM:SS added by Youri
 #outfile = "cplex-out-#{datetime}-#{rand}".gsub(/ /,"")
 #outfile = "./example_cplex/outfiles/cplex-out-tmp-#{rand}"
-outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-#{datetime2}"
 #logfile = "/Users/ilyashimmich/Documents/POSTDOC/projets_DLP/article/CODE/paramils2.3.8-source/example_cplex/log_file/cplex.log"
 #logfile = "./example_cplex/log_file/cplex_#{log_inst_name}.log"
 #logfile = "/tmp/trace_files"
 
 obj_lower_bound = false
 mpi_run = false
+mip_start = false
 
 param_lines = []
 i=5
@@ -46,6 +46,10 @@ while i<ARGV.length-1
 	elsif param == "process_mpi"
 		mpi_run = true
 		process_rank = ARGV[i+1]
+		i+=2
+	elsif param == "mip_start"
+		mip_start = true
+		mip_start_file = ARGV[i+1]
 		i+=2
 	elsif param == "iteration"
 		iteration = ARGV[i+1]
@@ -62,17 +66,20 @@ end
 
 
 logfile = "tuner_working_dir/solver/cplex.log_iteration_paramils_#{iteration}_worker_0"
+outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-#{datetime2}"
+mip_startfile = "tuner_working_dir/solver/mipstarts/mipstart-#{datetime2}.mst"
 
 if mpi_run
 	logfile = "tuner_working_dir/solver/cplex.log_iteration_paramils_#{iteration}_worker_#{process_rank}"
 	outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-worker-#{process_rank}-#{datetime2}"
+	mip_startfile = "tuner_working_dir/solver/mipstarts/mipstart-worker-#{process_rank}-#{datetime2}.mst"
 end
 
 #=== Change to however you call CPLEX locally.
 #=== This is a File.popen construct, because I need to pipe in all the parameters after calling CPLEX.
 #=== (you can also do this as a double File.popen construct: call ruby on the command line to call CPLEX and output something; that something can be read in with File.popen again - this is what I used to do in the commented part below. But now I'm just going via the logfile.)
 #cmd = "ruby -e 'File.popen(\"/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call own PC
-#cmd = "ruby -e 'File.popen(\"/home/ibm/cplex-studio/22.1.1/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call gerad
+cmd = "ruby -e 'File.popen(\"/home/ibm/cplex-studio/22.1.1/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call gerad
 #cmd = "ruby -e 'File.popen(\"/home/yorig/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call alliance
 
 cplex_lines = []
@@ -82,12 +89,17 @@ cplex_lines << "read #{instance_relname}"
 #cplex_lines << "set mip limits nodes #{cutoff_length}"
 cplex_lines << "set timelimit #{cutoff_time}"
 
+if mip_start
+	cplex_lines << "read #{mip_start_file}"
+end
+
 #=== Set parameters.
 cplex_lines += param_lines
 
 cplex_lines << "display settings changed"
 cplex_lines << "opt"
 #cplex_lines << "write x.sol"
+#cplex_lines << "write #{mip_startfile}"
 cplex_lines << "quit"
 
 cplex_lines.map{|line| cmd += "file.puts \"#{line}\"; "}

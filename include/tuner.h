@@ -82,7 +82,7 @@ class Tuner {
             nb_workers_(nb_workers),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
@@ -100,10 +100,16 @@ class Tuner {
             return *best_config;
         }
 
+        /** @brief Get the objective value of the best evaluation */
+        double getBestObjective() const {
+            return memory_.getBestObjective();
+        }
+
         /** @brief Write the history of evaluated configurations to some files for analysis */
         void writeConfigurationsHistoryToFiles(const std::string& filename) const {
             memory_.exportEvaluationLogCSV(filename + "_evaluation_log.csv");
             memory_.exportUniqueConfigsCSV(filename + "_unique_configs.csv");
+            memory_.exportUniqueMipStartsCSV(filename + "_unique_mip_starts.csv");
         }
 };
 

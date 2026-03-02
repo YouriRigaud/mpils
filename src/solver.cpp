@@ -36,6 +36,10 @@ void CPLEXSolver::solve() {
         cplex.readParam(config_file_path_.c_str());
         // Set time limit
         cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
+        // Set mip start
+        //if (!mip_start_file_.empty()) {
+        //    cplex.readMIPStart(mip_start_file_.c_str());
+        //}
         // Solve the model
         cplex.solve();
         // Get gap and time
@@ -43,6 +47,11 @@ void CPLEXSolver::solve() {
         // change number of floating point precision to 1e-2
         gap_ = std::round(gap_ * 100.0) / 100.0;
         time_sec_ = cplex.getTime();
+        // write mip start file
+        if (!mip_start_from_file_.empty()) {
+            cplex.writeMIPStarts(mip_start_from_file_.c_str());
+            logger_.info("Writing MIP start file: " + mip_start_from_file_);
+        }
     } catch (IloException& e) {
         env.error() << "CPLEX Exception: " << e << std::endl;
     } catch (...) {
