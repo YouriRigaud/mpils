@@ -6,7 +6,6 @@
 #ifndef EXPLORATION_H
 #define EXPLORATION_H
 
-#include "parameter.h"
 #include "tuner_memory.h"
 #include "logger.h"
 #include "parameter_space.h"

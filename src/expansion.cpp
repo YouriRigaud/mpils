@@ -7,7 +7,6 @@
 #include "../include/solver.h"
 #include "../include/tuner.h"
 #include "../include/globaltimer.h"
-#include "../include/tuner_memory.h"
 #include "../include/configuration.h"
 
 #ifdef USE_MPI

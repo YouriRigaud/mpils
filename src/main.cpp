@@ -3,7 +3,6 @@
 // Author: Youri Rigaud
 // License: GNU GPLv3
 
-#include "../include/parameter.h"
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
 #include "../include/globaltimer.h"

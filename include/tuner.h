@@ -6,7 +6,6 @@
 #ifndef TUNER_H
 #define TUNER_H
 
-#include "parameter.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "exploration.h"

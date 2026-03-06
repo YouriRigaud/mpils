@@ -16,7 +16,7 @@
 #define TUNER_MEMORY_H
 
 #include "configuration.h"
-#include "parameter.h"
+#include "parameter_space.h"
 #include "logger.h"
 #include "globaltimer.h"
 

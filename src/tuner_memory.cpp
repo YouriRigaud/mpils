@@ -4,7 +4,6 @@
 // License: GNU GPLv3
 
 #include "../include/tuner_memory.h"
-#include "../include/configuration.h"
 
 ConfigurationId TunerMemory::ensureConfigurationStored_(const Configuration& config) {
     ConfigurationId config_id = config.getConfigurationId();

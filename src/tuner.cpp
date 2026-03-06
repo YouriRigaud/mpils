@@ -4,8 +4,6 @@
 // License: GNU GPLv3
 
 #include "../include/tuner.h"
-#include "../include/parameter.h"
-#include "../include/tuner_memory.h"
 
 #ifdef USE_MPI
 #include <mpi.h>

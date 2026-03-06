@@ -13,7 +13,7 @@
 #ifndef CONFIGURATION_H
 #define CONFIGURATION_H
 
-#include "parameter.h"
+#include "parameter_space.h"
 
 #include <map>
 #include <string>
