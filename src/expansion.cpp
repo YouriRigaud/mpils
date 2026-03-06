@@ -7,6 +7,8 @@
 #include "../include/solver.h"
 #include "../include/tuner.h"
 #include "../include/globaltimer.h"
+#include "../include/tuner_memory.h"
+#include "../include/configuration.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -17,11 +19,7 @@
 void Expansion::run() {
     logger_.info("Starting expansion phase...");
 
-    best_actual_config_ = memory_.getBestConfiguration();
-    if (best_actual_config_ == nullptr) {
-            logger_.info("No best configuration in memory, cannot start expansion phase at iteration ", iteration_, ".");
-            return;
-    }
+    best_objective_value_ = memory_.getBestObjectiveWithoutMipStart();
 
     const std::vector<std::reference_wrapper<Parameter>> expansion_parameters = selectParameters();
     if (expansion_parameters.empty()) {
@@ -62,10 +60,10 @@ void Expansion::run() {
 
     int total_configs = 0;
     for (const auto& evaluation_result : evaluation_results) {
-        total_configs += evaluation_result.configurations.size();
+        total_configs += evaluation_result.evaluations.size();
     }
 
-    logger_.info("Added ", total_configs, " configurations to memory from expansion phase at iteration ", iteration_);
+    logger_.info("Added ", total_configs, " evaluations to memory from expansion phase at iteration ", iteration_);
 
 
     logger_.info("Expansion phase completed.");
@@ -100,10 +98,10 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
         Parameter& param = param_ref.get();
         logger_.info("Creating configurations for parameter: ", param.getName());
 
-        // Generate configurations for the parameter
-        const Configuration* best_config = memory_.getBestConfiguration();
+        // Generate configurations for the parameter, use the best configuration without MIP start as base to avoid bias from MIP starts
+        const Configuration* best_config = memory_.getBestConfigurationWithoutMipStart();
         if (best_config == nullptr) {
-            logger_.info("No best configuration in memory, using default configuration for expansion.");
+            logger_.info("No best configuration without MIP start in memory, using default configuration for expansion.");
             best_config = &memory_.getDefaultConfiguration();
         }
 
@@ -120,7 +118,7 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
 
         for (const auto& value : valueToEvaluate) {
             std::string config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
-            std::map<std::string, Value> config_map = best_config->getConfiguration();
+            std::map<std::string, Value> config_map = best_config->getConfigurationMap();
             config_map.insert_or_assign(param.getName(), value);
 
             Configuration config(config_map);
@@ -143,11 +141,20 @@ void Expansion::addToEvaluateParameters(Parameter& param, const Configuration& c
         it = std::prev(evaluation_outputs.end());
     }
 
-    // Add the evaluated configuration
-    Configuration evaluated_config = config;
-    evaluated_config.setObjective(objective_value, evaluated_time);
-    it->configurations.push_back(evaluated_config);
-    memory_.addConfiguration(evaluated_config, worker_id, iteration_, 1); // Add to memory with worker_id, iteration and phase for logging
+    // Add the evaluation
+    RecordEvaluationOptions options;
+    options.mip_start_used = false; // Expansion phase does not use MIP starts
+    options.produced_mip_start = false; // Expansion phase does not produce MIP starts
+    
+    options.objective_value = objective_value;
+    options.time_evaluated = evaluated_time;
+    options.worker_id = worker_id;
+    options.phase = 1; // Phase 1 for expansion
+
+    EvaluationId eval_id = memory_.recordEvaluation(config, options);
+    EvaluationRecord eval_record = *memory_.getEvaluationById(eval_id);
+
+    it->evaluations.push_back(eval_record);
 }
 
 const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files_outputs) {
@@ -235,21 +242,20 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
 
     for (const auto& eval_output : evaluation_results) {
         Parameter& param = eval_output.parameter;
-        const auto& configurations = eval_output.configurations;
+        const auto& evaluations = eval_output.evaluations;
 
         // Simple classification logic: if the best configuration with this parameter is better than the best overall, select it
         //TODO: More sophisticated classification logic can be implemented here
 
-        double best_actual_objective = best_actual_config_->getObjective();
         double param_best_objective = std::numeric_limits<double>::max();
-        for (const auto& config : configurations) {
-            if (config.getObjective() < param_best_objective) {
-                param_best_objective = config.getObjective();
+        for (const auto& evaluation : evaluations) {
+            if (evaluation.objective_value < param_best_objective) {
+                param_best_objective = evaluation.objective_value;
             }
         }
 
-        bool toSelect = param_best_objective < best_actual_objective;
-        bool toDiscard = !toSelect && (param_best_objective >= best_actual_objective * 1.0); // Discard if significantly worse
+        bool toSelect = param_best_objective < best_objective_value_;
+        bool toDiscard = !toSelect && (param_best_objective >= best_objective_value_ * 1.0); // Discard if significantly worse
 
         classified_parameters.push_back({param, toSelect, toDiscard});
     }

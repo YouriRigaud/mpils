@@ -77,10 +77,10 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     tuner.run();
 
     std::cout << "Best configuration found:" << std::endl;
-    std::cout << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
+    std::cout << "Objective: " << tuner.getBestObjective() << std::endl;
 
     tuner.getBestConfiguration().printConfiguration(std::cout);
-    log_file << "Objective: " << tuner.getBestConfiguration().getObjective() << std::endl;
+    log_file << "Objective: " << tuner.getBestObjective() << std::endl;
 
     tuner.getBestConfiguration().generateConfigFile(options.tuner_dir + "best_configuration.prm");
     
