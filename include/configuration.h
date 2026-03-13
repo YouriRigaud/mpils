@@ -18,6 +18,7 @@
 #include <map>
 #include <string>
 #include <fstream>
+#include <cstdint>
 
 using ConfigurationId = uint64_t;
 

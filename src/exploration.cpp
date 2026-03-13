@@ -16,6 +16,7 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include <optional>
 
 void Exploration::updateTunedParameters() {
     for (auto& param : parameter_space_.getParameters()) {
@@ -92,13 +93,38 @@ void Exploration::run() {
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
 
-    setEngine(std::make_unique<ParamILSEngine>(memory_, logger_, initial_configurations, parameter_space_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
-
+    setEngine(std::make_unique<IteratedLocalSearchEngine>(
+        memory_,
+        logger_,
+        initial_configurations,
+        parameter_space_,
+        instance_file_,
+        param_ils_instance_file_,
+        solver_log_file_,
+        nb_evaluations,
+        iteration_,
+        nb_threads_solver_,
+        cutoff_solver_time_,
+        nb_workers_
+    ));
 
     if (!engine_) {
         logger_.info("No local search engine set for exploration.");
-        setEngine(std::make_unique<ParamILSEngine>(memory_, logger_, initial_configurations, parameter_space_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
-        logger_.info("Default ParamILSEngine has been set.");
+        setEngine(std::make_unique<IteratedLocalSearchEngine>(
+            memory_,
+            logger_,
+            initial_configurations,
+            parameter_space_,
+            instance_file_,
+            param_ils_instance_file_,
+            solver_log_file_,
+            nb_evaluations,
+            iteration_,
+            nb_threads_solver_,
+            cutoff_solver_time_,
+            nb_workers_
+        ));
+        logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
     
     const std::vector<std::pair<int, std::vector<EvaluationRecord>>> evaluations = engine_->run();
@@ -505,6 +531,242 @@ void LocalSearchEngine::setMipStartFile() {
     options.mip_start_file = mip_start_file_;
     logger_.info("Producing mip start file path = '", mip_start_file_, "'");
     memory_.recordEvaluation(best_config, options);
+}
+
+std::optional<double> IteratedLocalSearchEngine::getKnownInitialObjective_() const {
+    if (initial_configurations_.empty()) {
+        return std::nullopt;
+    }
+
+    const Configuration& initial_config = initial_configurations_[0];
+    try {
+        const ConfigurationStats& stats = memory_.getConfigurationStatsById(initial_config.getConfigurationId());
+        if (stats.nb_evaluations > 0) {
+            return stats.best_objective;
+        }
+    } catch (...) {
+        // configuration not yet known in memory
+    }
+
+    return std::nullopt;
+}
+
+void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& myfile) {
+    std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
+
+    const Configuration& initial_config = initial_configurations_[0];
+
+    for (auto& param : parameter_space_.getParameters()) {
+        Value initial_value = initial_config.getConfigurationMap().at(param.getName());
+
+        myfile << param.getName() << " {";
+        if (param.isTuned()) {
+            const auto& values = param.getValues();
+            bool first_written = true;
+            for (const auto& value : values) {
+                bool is_forbidden = false;
+                for (const auto& forbidden_pair : forbidden_values) {
+                    if (forbidden_pair.first == param.getName() &&
+                        forbidden_pair.second.getString() == value.getString()) {
+                        is_forbidden = true;
+                        if (value == initial_value) {
+                            logger_.info("Warning: Initial value for parameter ", param.getName(),
+                                         " is forbidden. So unforbidden it for the ILS initial configuration at iteration ",
+                                         iteration_, ".");
+                            is_forbidden = false;
+                        }
+                        break;
+                    }
+                }
+
+                if (is_forbidden) {
+                    continue;
+                }
+
+                if (!first_written) {
+                    myfile << ",";
+                }
+                myfile << value.getString();
+                first_written = false;
+            }
+        } else {
+            myfile << initial_value.getString();
+        }
+        myfile << "} [" << initial_value.getString() << "]" << std::endl;
+    }
+}
+
+void IteratedLocalSearchEngine::writeILSForbiddenOptionsToFile(std::ofstream& myfile) {
+    std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
+    const Configuration& initial_config = initial_configurations_[0];
+
+    for (const auto& tuple : forbidden_tuples) {
+        bool initial_contains_tuple = true;
+        for (const auto& pair : tuple) {
+            const std::string& param_name = pair.first;
+            const Value& forbidden_value = pair.second;
+
+            if (initial_config.getConfigurationMap().at(param_name).getString() == forbidden_value.getString()) {
+                continue;
+            } else {
+                initial_contains_tuple = false;
+                break;
+            }
+        }
+
+        if (initial_contains_tuple) {
+            logger_.info("Warning: Initial configuration contains a forbidden tuple. So unforbidden it for ILS at iteration ",
+                         iteration_, ".");
+            continue;
+        }
+
+        myfile << "{";
+        for (size_t i = 0; i < tuple.size(); ++i) {
+            myfile << tuple[i].first << "=" << tuple[i].second.getString();
+            if (i < tuple.size() - 1) {
+                myfile << ", ";
+            }
+        }
+        myfile << "}" << std::endl;
+    }
+}
+
+void IteratedLocalSearchEngine::writeILSConditionalCplexOptionsToFile(std::ofstream& myfile) {
+    myfile << std::endl;
+    myfile << "Conditionals:" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Limits_GomoryCand | CPXPARAM_MIP_Cuts_Gomory in {0,1,2} "
+           << "# CPXPARAM_MIP_Cuts_Gomory just can't be -1" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Limits_StrongCand | CPXPARAM_MIP_Strategy_VariableSelect in {3}" << std::endl;
+    myfile << "CPXPARAM_MIP_Limits_StrongIt | CPXPARAM_MIP_Strategy_VariableSelect in {3}" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Strategy_BBInterval | CPXPARAM_MIP_Strategy_NodeSelect in {2}" << std::endl;
+
+    myfile << "CPXPARAM_Preprocessing_NumPass | CPXPARAM_Preprocessing_Presolve in {1}" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Strategy_Order | CPXPARAM_MIP_OrderType in {1,2,3}" << std::endl;
+}
+
+void IteratedLocalSearchEngine::writeILSInfoToFile(std::ofstream& myfile) {
+    myfile << std::endl;
+    myfile << "Info:" << std::endl;
+
+    const std::optional<double> known_objective = getKnownInitialObjective_();
+    if (known_objective.has_value()) {
+        myfile << "Initial configuration evaluated: 1" << std::endl;
+        myfile << "Objective value of the initial configuration: " << known_objective.value() << std::endl;
+    } else {
+        myfile << "Initial configuration evaluated: 0" << std::endl;
+    }
+}
+
+void IteratedLocalSearchEngine::writeILSSearchSpaceFile() {
+    logger_.info("Writing ILS search space file...");
+
+    std::filesystem::create_directories(ils_working_dir_ + "search_space/");
+    search_space_file_ = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
+
+    std::ofstream myfile(search_space_file_);
+    if (!myfile.is_open()) {
+        throw std::runtime_error("Error opening ILS search space file for writing: " + search_space_file_);
+    }
+
+    writeILSParameterOptionsToFile(myfile);
+    writeILSForbiddenOptionsToFile(myfile);
+    writeILSConditionalCplexOptionsToFile(myfile);
+    writeILSInfoToFile(myfile);
+
+    myfile.close();
+
+    logger_.info("ILS search space file written: ", search_space_file_);
+}
+
+std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalMemory_(
+    const std::vector<std::pair<Configuration, EvaluationRecord>>& local_results
+) {
+    std::vector<EvaluationRecord> synced_results;
+
+    const std::optional<double> known_initial_objective = getKnownInitialObjective_();
+    const Configuration& initial_config = initial_configurations_[0];
+
+    for (const auto& pair : local_results) {
+        const Configuration& config = pair.first;
+        const EvaluationRecord& local_record = pair.second;
+
+        // If the initial configuration was already known before launching ILS,
+        // then the injected local-cache record should not be duplicated in global memory.
+        if (known_initial_objective.has_value() &&
+            config == initial_config &&
+            local_record.objective_value == known_initial_objective.value()) {
+            continue;
+        }
+
+        RecordEvaluationOptions options;
+        options.objective_value = local_record.objective_value;
+        options.time_evaluated = local_record.time_evaluated;
+        options.worker_id = 0;
+        options.iteration = iteration_;
+        options.phase = 0;
+
+        options.mip_start_used = config.useMipStart();
+        if (config.useMipStart() && mip_start_) {
+            options.used_mip_start_id = memory_.getMipStartToUse();
+        }
+
+        options.produced_mip_start = false;
+
+        EvaluationId eval_id = memory_.recordEvaluation(config, options);
+        const EvaluationRecord* global_eval = memory_.getEvaluationById(eval_id);
+        if (global_eval != nullptr) {
+            synced_results.push_back(*global_eval);
+        }
+    }
+
+    return synced_results;
+}
+
+std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEngine::run() {
+    logger_.info("Running IteratedLocalSearch Engine...");
+
+    if (iteration_ > 1) {
+        mip_start_ = true;
+    }
+    logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
+
+    if (mip_start_) {
+        setMipStartFile();
+    }
+
+    writeILSSearchSpaceFile();
+
+    IteratedLocalSearch::Options ils_options;
+    ils_options.search_space_file = search_space_file_;
+    ils_options.instance_file = instance_file_;
+    ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_);
+    ils_options.random_seed = static_cast<unsigned int>(iteration_);
+    ils_options.evaluation_budget = max_evaluations_;
+    ils_options.perturbation_strength = 3;
+    ils_options.random_initial_samples = 0;
+    ils_options.restart_probability = 0.10;
+    ils_options.accept_ties = false;
+    ils_options.acceptance_threshold = 0.01;
+    ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
+    if (ils_options.use_mip_starts) {
+        ils_options.mip_start_file = mip_start_file_;
+    }
+    ils_options.nb_threads_solver = nb_threads_solver_;
+    ils_options.cutoff_solver_time = cutoff_solver_time_;
+
+    ils_ = std::make_unique<IteratedLocalSearch>(logger_, ils_options);
+    ils_->run();
+
+    // This accessor must exist in IteratedLocalSearch.
+    const auto local_results = ils_->getEvaluationsWithConfigurations();
+    std::vector<EvaluationRecord> synced_results = syncILSResultsToGlobalMemory_(local_results);
+
+    logger_.info("IteratedLocalSearch Engine completed.");
+    return { {0, synced_results} };
 }
 
 #ifdef USE_MPI

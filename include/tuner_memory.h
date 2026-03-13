@@ -318,6 +318,20 @@ class TunerMemory {
             }
             return configs_with_objectives;
         }
+
+        /** @brief Get the best MIP start file from the memory */
+        std::optional<std::string> getBestMipStartFile() const {
+            if (mip_starts_by_id_.empty()) {
+                return std::nullopt;
+            }
+            // Return the last MIP start generated, which is the one with the highest ID (next_mip_start_id_ - 1)
+            MipStartId best_mip_start_id = next_mip_start_id_ - 1;
+            auto it = mip_starts_by_id_.find(best_mip_start_id);
+            if (it != mip_starts_by_id_.end()) {
+                return it->second.mip_start_file;
+            }
+            return std::nullopt;
+        }
 };
 
 #endif // TUNER_MEMORY_H

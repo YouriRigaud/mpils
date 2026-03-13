@@ -1,4 +1,3 @@
-CPXPARAM_Threads		2      [2]
 CPXPARAM_Parallel       1   [1]
 CPXPARAM_Emphasis_MIP		0	1	2	3	4	5	[3]
 CPXPARAM_MIP_Cuts_Cliques		-1	0	1	2	3	[-1]

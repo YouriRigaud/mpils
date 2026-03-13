@@ -10,6 +10,7 @@
 #include "logger.h"
 #include "parameter_space.h"
 #include "configuration.h"
+#include "iterated_local_search.h"
 
 #include <string>
 
@@ -74,6 +75,46 @@ class LocalSearchEngine {
         virtual ~LocalSearchEngine() = default;
 
         virtual std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() = 0;
+};
+
+class IteratedLocalSearchEngine : public LocalSearchEngine {
+    private:
+        std::unique_ptr<IteratedLocalSearch> ils_;
+
+        const std::string ils_working_dir_ = "tuner_working_dir/iterated_local_search/";
+        std::string search_space_file_;
+
+        void writeILSSearchSpaceFile();
+        void writeILSParameterOptionsToFile(std::ofstream& myfile);
+        void writeILSForbiddenOptionsToFile(std::ofstream& myfile);
+        void writeILSConditionalCplexOptionsToFile(std::ofstream& myfile);
+        void writeILSInfoToFile(std::ofstream& myfile);
+
+        std::optional<double> getKnownInitialObjective_() const;
+
+        std::vector<EvaluationRecord> syncILSResultsToGlobalMemory_(
+            const std::vector<std::pair<Configuration, EvaluationRecord>>& local_results
+        );
+
+    public:
+        IteratedLocalSearchEngine(
+            TunerMemory& memory,
+            Logger& logger,
+            const std::vector<Configuration>& initial_configurations,
+            ParameterSpace& parameter_space,
+            const std::string& instance_file,
+            const std::string& param_ils_instance_file,
+            const std::string& solver_log_file,
+            int max_evaluations,
+            int& iteration,
+            int nb_threads_solver,
+            double cutoff_solver_time,
+            int nb_workers,
+            bool mip_start = false
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, mip_start)
+        {}
+
+        std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override;
 };
 
 class ParamILSEngine : public LocalSearchEngine {
