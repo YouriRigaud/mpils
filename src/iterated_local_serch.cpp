@@ -16,6 +16,138 @@
 #include <filesystem>
 #include <cstdlib>
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
+// ============================================================
+// ReplicatedObjectiveCache implementation
+// ============================================================
+
+void ReplicatedObjectiveCache::updateObjective_(ConfigurationId configuration_id, double objective_value) {
+    auto it = objective_cache_.find(configuration_id);
+    if (it == objective_cache_.end() || objective_value < it->second) {
+        objective_cache_[configuration_id] = objective_value;
+    }
+}
+
+void ReplicatedObjectiveCache::initialize() {
+#ifdef USE_MPI
+    int initialized = 0;
+    MPI_Initialized(&initialized);
+    mpi_available_ = initialized != 0;
+    if (!mpi_available_) {
+        return;
+    }
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank_);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size_);
+#endif
+}
+
+void ReplicatedObjectiveCache::publish(ConfigurationId configuration_id, double objective_value) {
+    updateObjective_(configuration_id, objective_value);
+
+#ifdef USE_MPI
+    if (!mpi_available_ || world_size_ <= 1) {
+        return;
+    }
+
+    flushPendingSends();
+
+    for (int rank = 0; rank < world_size_; ++rank) {
+        if (rank == world_rank_) {
+            continue;
+        }
+
+        pending_sends_.push_back(PendingSend{
+            ObjectiveUpdateMessage{configuration_id, objective_value},
+            MPI_REQUEST_NULL,
+            rank
+        });
+
+        PendingSend& send = pending_sends_.back();
+        MPI_Isend(
+            &send.message,
+            static_cast<int>(sizeof(ObjectiveUpdateMessage)),
+            MPI_BYTE,
+            rank,
+            kObjectiveCacheTag,
+            MPI_COMM_WORLD,
+            &send.request
+        );
+    }
+#else
+    (void)configuration_id;
+    (void)objective_value;
+#endif
+}
+
+void ReplicatedObjectiveCache::pollIncoming() {
+#ifdef USE_MPI
+    if (!mpi_available_ || world_size_ <= 1) {
+        return;
+    }
+
+    flushPendingSends();
+
+    int has_message = 0;
+    MPI_Status status;
+    MPI_Iprobe(MPI_ANY_SOURCE, kObjectiveCacheTag, MPI_COMM_WORLD, &has_message, &status);
+
+    while (has_message) {
+        ObjectiveUpdateMessage message{};
+        MPI_Recv(
+            &message,
+            static_cast<int>(sizeof(ObjectiveUpdateMessage)),
+            MPI_BYTE,
+            status.MPI_SOURCE,
+            kObjectiveCacheTag,
+            MPI_COMM_WORLD,
+            MPI_STATUS_IGNORE
+        );
+        updateObjective_(message.configuration_id, message.objective_value);
+        MPI_Iprobe(MPI_ANY_SOURCE, kObjectiveCacheTag, MPI_COMM_WORLD, &has_message, &status);
+    }
+#endif
+}
+
+void ReplicatedObjectiveCache::flushPendingSends() {
+#ifdef USE_MPI
+    if (!mpi_available_ || pending_sends_.empty()) {
+        return;
+    }
+
+    auto it = pending_sends_.begin();
+    while (it != pending_sends_.end()) {
+        int completed = 0;
+        MPI_Test(&it->request, &completed, MPI_STATUS_IGNORE);
+        if (completed) {
+            it = pending_sends_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+#endif
+}
+
+void ReplicatedObjectiveCache::waitForPendingSends() {
+#ifdef USE_MPI
+    if (!mpi_available_ || pending_sends_.empty()) {
+        return;
+    }
+
+    std::vector<MPI_Request> requests;
+    requests.reserve(pending_sends_.size());
+    for (auto& send : pending_sends_) {
+        requests.push_back(send.request);
+    }
+
+    MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUSES_IGNORE);
+    pending_sends_.clear();
+#endif
+}
+
 // ============================================================
 // LocalSearchSpace helpers
 // ============================================================
@@ -487,6 +619,9 @@ Configuration LocalSearchSpace::sampleRandomConfiguration(std::mt19937& rng, boo
 
 void IteratedLocalSearch::createSearchSpace_() {
     logger_.info("Creating local search space from parameter space file: ", options_.search_space_file);
+    if (options_.use_shared_cache) {
+        shared_objective_cache_.initialize();
+    }
     search_space_.loadFromFile(options_.search_space_file);
 }
 
@@ -587,8 +722,29 @@ double IteratedLocalSearch::evaluateConfiguration_(const Configuration& config) 
 }
 
 EvaluationRecord IteratedLocalSearch::getOrEvaluate_(const Configuration& config) {
-    if (auto cached = memory_.getCachedEvaluation(config); cached.has_value()) {
-        return cached.value();
+    if (options_.use_shared_cache) {
+        shared_objective_cache_.pollIncoming();
+    }
+
+    const auto cached = memory_.getCachedEvaluation(config);
+    const auto shared_objective = options_.use_shared_cache
+        ? shared_objective_cache_.getObjective(config.getConfigurationId())
+        : std::nullopt;
+
+    if (cached.has_value()) {
+        if (!shared_objective.has_value() || cached->objective_value <= shared_objective.value()) {
+            return cached.value();
+        }
+
+        EvaluationRecord shared_record = createSharedEvaluationRecord_(config, shared_objective.value());
+        memory_.addSharedEvaluation(config, shared_record);
+        return shared_record;
+    }
+
+    if (shared_objective.has_value()) {
+        EvaluationRecord shared_record = createSharedEvaluationRecord_(config, shared_objective.value());
+        memory_.addSharedEvaluation(config, shared_record);
+        return shared_record;
     }
 
     if (nb_evaluations_ >= options_.evaluation_budget) {
@@ -598,6 +754,9 @@ EvaluationRecord IteratedLocalSearch::getOrEvaluate_(const Configuration& config
     EvaluationRecord record = runSolverAndCreateRecord_(config);
     memory_.addEvaluation(config, record);
     ++nb_evaluations_;
+    if (options_.use_shared_cache) {
+        shared_objective_cache_.publish(config.getConfigurationId(), record.objective_value);
+    }
     return record;
 }
 
@@ -676,6 +835,26 @@ EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(const Configuratio
     record.iteration = static_cast<int>(current_iteration_);
     record.phase = -1;
 
+    return record;
+}
+
+EvaluationRecord IteratedLocalSearch::createSharedEvaluationRecord_(const Configuration& config, double objective_value) {
+    EvaluationRecord record;
+    record.evaluation_id = 0;
+    record.objective_value = objective_value;
+    record.time_evaluated = GlobalTimer::elapsedSeconds();
+    record.configuration_id = config.getConfigurationId();
+
+    record.mip_start_used = config.useMipStart();
+    record.used_mip_start_id = std::nullopt;
+    record.mip_start_source_evaluation_id = std::nullopt;
+
+    record.produced_mip_start = false;
+    record.produced_mip_start_id = std::nullopt;
+
+    record.worker_id = -2;
+    record.iteration = static_cast<int>(current_iteration_);
+    record.phase = -1;
     return record;
 }
 
@@ -763,6 +942,9 @@ void IteratedLocalSearch::run() {
     std::bernoulli_distribution restart_distribution(options_.restart_probability);
 
     while (!terminationCriterionMet_()) {
+        if (options_.use_shared_cache) {
+            shared_objective_cache_.pollIncoming();
+        }
         ++current_iteration_;
         Configuration candidate;
 
@@ -781,6 +963,11 @@ void IteratedLocalSearch::run() {
         }
 
         updateIncumbentIfNeeded_(candidate);
+    }
+
+    if (options_.use_shared_cache) {
+        shared_objective_cache_.pollIncoming();
+        shared_objective_cache_.waitForPendingSends();
     }
 
     logger_.info("Local search phase completed.");

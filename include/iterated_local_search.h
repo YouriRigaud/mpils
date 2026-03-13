@@ -18,11 +18,16 @@
 #include <string>
 #include <map>
 #include <chrono>
+#include <limits>
+
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
 
 class LocalSearchMemory {
     private:
         Logger logger_;
-        std::vector<EvaluationRecord> evaluations_;
+        std::vector<EvaluationRecord> local_evaluations_;
         std::unordered_map<ConfigurationId, EvaluationRecord> cache_;
         std::unordered_map<ConfigurationId, Configuration> configurations_;
 
@@ -30,7 +35,12 @@ class LocalSearchMemory {
         explicit LocalSearchMemory(Logger logger): logger_(logger) {}
 
         void addEvaluation(const Configuration& config, const EvaluationRecord& record) {
-            evaluations_.push_back(record);
+            local_evaluations_.push_back(record);
+            cache_[record.configuration_id] = record;
+            configurations_[record.configuration_id] = config;
+        }
+
+        void addSharedEvaluation(const Configuration& config, const EvaluationRecord& record) {
             cache_[record.configuration_id] = record;
             configurations_[record.configuration_id] = config;
         }
@@ -56,14 +66,14 @@ class LocalSearchMemory {
         }
 
         const std::vector<EvaluationRecord>& getEvaluations() const {
-            return evaluations_;
+            return local_evaluations_;
         }
 
         std::vector<std::pair<Configuration, EvaluationRecord>> getEvaluationsWithConfigurations() const {
             std::vector<std::pair<Configuration, EvaluationRecord>> result;
-            result.reserve(evaluations_.size());
+            result.reserve(local_evaluations_.size());
 
-            for (const auto& record : evaluations_) {
+            for (const auto& record : local_evaluations_) {
                 result.emplace_back(
                     configurations_.at(record.configuration_id),
                     record
@@ -78,6 +88,50 @@ struct ConditionalActivation {
     std::string child_parameter;
     std::string parent_parameter;
     std::vector<Value> activating_values;
+};
+
+class ReplicatedObjectiveCache {
+    private:
+        Logger logger_;
+        std::unordered_map<ConfigurationId, double> objective_cache_;
+
+#ifdef USE_MPI
+        struct ObjectiveUpdateMessage {
+            ConfigurationId configuration_id;
+            double objective_value;
+        };
+
+        struct PendingSend {
+            ObjectiveUpdateMessage message;
+            MPI_Request request = MPI_REQUEST_NULL;
+            int destination = -1;
+        };
+
+        std::vector<PendingSend> pending_sends_;
+        bool mpi_available_ = false;
+        int world_rank_ = 0;
+        int world_size_ = 1;
+        static constexpr int kObjectiveCacheTag = 701;
+#endif
+
+        void updateObjective_(ConfigurationId configuration_id, double objective_value);
+
+    public:
+        explicit ReplicatedObjectiveCache(Logger logger): logger_(logger) {}
+
+        void initialize();
+        void publish(ConfigurationId configuration_id, double objective_value);
+        void pollIncoming();
+        void flushPendingSends();
+        void waitForPendingSends();
+
+        std::optional<double> getObjective(ConfigurationId configuration_id) const {
+            auto it = objective_cache_.find(configuration_id);
+            if (it != objective_cache_.end()) {
+                return it->second;
+            }
+            return std::nullopt;
+        }
 };
 
 class LocalSearchSpace {
@@ -171,6 +225,7 @@ class IteratedLocalSearch {
             double restart_probability = 0.1;
             bool accept_ties = false;
             double acceptance_threshold = 0.01;
+            bool use_shared_cache = false;
 
             bool use_mip_starts = false;
             std::optional<std::string> mip_start_file = std::nullopt;
@@ -182,6 +237,7 @@ class IteratedLocalSearch {
     private:
         Logger logger_;
         LocalSearchMemory memory_;
+        ReplicatedObjectiveCache shared_objective_cache_;
         LocalSearchSpace search_space_;
         Options options_;
 
@@ -212,6 +268,7 @@ class IteratedLocalSearch {
         double runSolverAndGetObjective_(const Configuration& config);
 
         EvaluationRecord createEvaluationRecord_(const Configuration& config, double objective_value);
+        EvaluationRecord createSharedEvaluationRecord_(const Configuration& config, double objective_value);
 
         std::vector<Configuration> generateNeighbors_(const Configuration& config) const;
         Configuration iterativeFirstImprovement_(const Configuration& start_config);
@@ -230,6 +287,7 @@ class IteratedLocalSearch {
             const Options& options
         ): logger_(logger),
            memory_(logger),
+           shared_objective_cache_(logger),
            search_space_(logger),
            options_(options),
            rng_(options.random_seed)

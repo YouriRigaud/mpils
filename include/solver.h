@@ -19,6 +19,7 @@ class Solver {
         int nb_threads_;            // Number of threads for the solver
         double cutoff_solver_time_;   // Cutoff time for the solver
         std::string mip_start_from_file_; // mip start file for the solver (optional)
+        std::string produce_mip_start_file_; // mip start file produced by the solver (optional)
 
     public:
         Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time)
@@ -28,7 +29,8 @@ class Solver {
               log_file_(log_file),
               nb_threads_(nb_threads),
               cutoff_solver_time_(cutoff_solver_time),
-              mip_start_from_file_("")
+              mip_start_from_file_(""),
+              produce_mip_start_file_("")
         {}
 
         Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, std::string& mip_start_from_file)
@@ -38,7 +40,19 @@ class Solver {
               log_file_(log_file),
               nb_threads_(nb_threads),
               cutoff_solver_time_(cutoff_solver_time),
-              mip_start_from_file_(mip_start_from_file)
+              mip_start_from_file_(mip_start_from_file),
+              produce_mip_start_file_("")
+        {}
+
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, std::string& mip_start_from_file, std::string& produce_mip_start_file)
+            : logger_(logger),
+              instance_file_(instance_file),
+              config_file_path_(config_file_path),
+              log_file_(log_file),
+              nb_threads_(nb_threads),
+              cutoff_solver_time_(cutoff_solver_time),
+              mip_start_from_file_(mip_start_from_file),
+              produce_mip_start_file_(produce_mip_start_file)
         {}
 
         virtual ~Solver() = default; // Virtual destructor
@@ -76,6 +90,20 @@ class CPLEXSolver : public Solver {
             double cutoff_solver_time,
             std::string& mip_start_from_file
         ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, mip_start_from_file),
+           gap_(std::numeric_limits<double>::max()),
+           time_sec_(std::numeric_limits<double>::max())
+        {}
+
+        CPLEXSolver(
+            Logger& logger,
+            const std::string& instance_file,
+            const std::string& config_file_path,
+            const std::string& log_file,
+            int nb_threads,
+            double cutoff_solver_time,
+            std::string& mip_start_from_file,
+            std::string& produce_mip_start_file
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, mip_start_from_file, produce_mip_start_file),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max())
         {}

@@ -508,8 +508,9 @@ void LocalSearchEngine::setMipStartFile() {
     mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
     std::string config_path = "tuner_working_dir/config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm";
     best_config.generateConfigFile(config_path);
+    std::string mip_void = ""; // We do not want to use a mip start file for the solver, we just want to generate it with cplex, so we give it an empty file that does not exist, so it does not use it but it generates it
     // Call cplex on the best configuration found so far to generate the mip start file
-    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_start_file_);
+    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_void, mip_start_file_);
     solver.solve();
 
     if (!std::filesystem::exists(mip_start_file_)) {
@@ -757,6 +758,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.restart_probability = 0.10;
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.01;
+    ils_options.use_shared_cache = true;
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
         ils_options.mip_start_file = mip_start_file_;
@@ -935,6 +937,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.restart_probability = 0.10;
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.01;
+    ils_options.use_shared_cache = true;
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
         ils_options.mip_start_file = mip_start_file_;
