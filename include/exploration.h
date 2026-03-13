@@ -266,6 +266,8 @@ class LocalSearchWorker {
         ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time)
         {}
 
+        virtual ~LocalSearchWorker() = default;
+
         virtual void run() = 0;
 };
 
