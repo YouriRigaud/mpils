@@ -623,7 +623,8 @@ double IteratedLocalSearch::runSolverAndGetObjective_(const Configuration& confi
     std::filesystem::create_directories(options_.working_directory);
 
     const std::string config_file_path = buildConfigFilePath_(config);
-    const std::string log_file_path = buildLogFilePath_(config);
+    // const std::string log_file_path = buildLogFilePath_(config); // We do not use a separate log file for each evaluation 
+    const std::string log_file_path = options_.log_file_solver; // Use the common log file for all evaluations in local search
 
     config.generateConfigFile(config_file_path);
 

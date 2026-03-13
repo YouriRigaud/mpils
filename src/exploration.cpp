@@ -133,7 +133,6 @@ void Exploration::run() {
     for (const auto& evaluation_pair : evaluations) {
         int worker_id = evaluation_pair.first;
         const std::vector<EvaluationRecord>& worker_evaluations = evaluation_pair.second;
-      //  memory_.addConfigurations(worker_configs, worker_id, iteration_, 0); // Phase 0 for exploration
         nb_evaluations += worker_evaluations.size();
     }
     
@@ -743,6 +742,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     IteratedLocalSearch::Options ils_options;
     ils_options.search_space_file = search_space_file_;
     ils_options.instance_file = instance_file_;
+    ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_0";
     ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_);
     ils_options.random_seed = static_cast<unsigned int>(iteration_);
     ils_options.evaluation_budget = max_evaluations_;

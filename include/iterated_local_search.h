@@ -161,6 +161,7 @@ class IteratedLocalSearch {
         struct Options {
             std::string search_space_file;
             std::string instance_file;
+            std::string log_file_solver;
             std::string working_directory = "tuner_working_dir/local_search";
 
             unsigned int random_seed = 0;
