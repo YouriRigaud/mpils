@@ -49,6 +49,12 @@ void CPLEXSolver::solve() {
         // change number of floating point precision to 1e-2
         gap_ = std::round(gap_ * 100.0) / 100.0;
         time_sec_ = cplex.getTime();
+        
+        // Log the gap in the cplex log file
+        logStream << "Gap: " << gap_ << "%\n";
+        logStream << "End of CPLEX run. Time: " << time_sec_ << " seconds\n";
+        logStream.close();
+
         // write mip start file
         if (!mip_start_from_file_.empty()) {
             cplex.writeMIPStarts(mip_start_from_file_.c_str());

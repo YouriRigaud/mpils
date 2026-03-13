@@ -116,6 +116,7 @@ class Tuner {
 struct WorkerOrder {
     int step;
     int iteration;
+    int nb_evaluations; // Number of evaluations to perform in the local search phase, relevant for step 1 (exploration)
 };
 
 class Worker {
@@ -127,6 +128,7 @@ class Worker {
         std::string solver_log_file_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
         std::unique_ptr<ExpansionWorker> expansion_worker_ = nullptr;

@@ -253,15 +253,18 @@ void Worker::receiveOrderFromMaster() {
     MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
     worker_step_ = order.step;
     iteration_ = order.iteration;
+    if (worker_step_ == 1) {
+        nb_evaluations_ = order.nb_evaluations;
+    }
     std::cout << "Worker " << worker_id_ << " received order for step " << worker_step_ << "." << std::endl;
 }
 
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
     if (worker_id_ == 1) {
-        setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_, true)); // mip start for worker 1
+        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, true)); // mip start for worker 1
     } else {
-        setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_));
+        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, false)); // no mip start for other workers
     }
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
@@ -272,6 +275,7 @@ void Worker::runExplorationPhase() {
 void Worker::runExpansionPhase() {
     std::cout << "Worker " << worker_id_ << " running expansion phase for iteration " << iteration_ << "." << std::endl;
     std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    std::cout << "Worker " << worker_id_ << " will use solver log file: " << solver_log_file_worker << std::endl;
     // Implementation of expansion phase logic
     setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_));
     expansion_worker_->run();

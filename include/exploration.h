@@ -96,6 +96,8 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             const std::vector<std::pair<Configuration, EvaluationRecord>>& local_results
         );
 
+        std::vector<std::pair<Configuration, EvaluationRecord>> readLocalResultsFromFile_(int worker_id);
+
     public:
         IteratedLocalSearchEngine(
             TunerMemory& memory,
@@ -249,10 +251,21 @@ class LocalSearchWorker {
         int worker_id_;
         int iteration_;
         bool mip_start_;
+        int nb_threads_solver_;
+        double cutoff_solver_time_;
         
     public:
         LocalSearchWorker(int worker_id, int iteration, bool mip_start = false): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start) {}
-        
+
+        LocalSearchWorker(
+            int worker_id,
+            int iteration,
+            int nb_threads_solver,
+            double cutoff_solver_time,
+            bool mip_start = false
+        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time)
+        {}
+
         virtual void run() = 0;
 };
 
@@ -274,6 +287,34 @@ class ParamILSWorker : public LocalSearchWorker {
 
         void run() override {
             callParamILS();
+        }
+};
+
+class IteratedLocalSearchWorker : public LocalSearchWorker {
+    private:
+        const std::string ils_working_dir_ = "tuner_working_dir/iterated_local_search/";
+        int max_evaluations_;
+        std::string instance_file_;
+        std::string solver_log_file_;
+        std::string mip_start_file_;
+
+        void callIteratedLocalSearch();
+    
+    public:
+        IteratedLocalSearchWorker(
+            int worker_id,
+            int iteration,
+            int max_evaluations,
+            int nb_threads_solver,
+            double cutoff_solver_time,
+            std::string instance_file,
+            std::string solver_log_file,
+            bool mip_start = false
+        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, mip_start), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
+        {}
+
+        void run() override {
+            callIteratedLocalSearch();
         }
 };
 #endif // USE_MPI

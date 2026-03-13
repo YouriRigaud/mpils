@@ -728,6 +728,8 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
 std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEngine::run() {
     logger_.info("Running IteratedLocalSearch Engine...");
 
+    std::vector<std::pair<int, std::vector<EvaluationRecord>>> exploration_results;
+
     if (iteration_ > 1) {
         mip_start_ = true;
     }
@@ -739,12 +741,16 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
 
     writeILSSearchSpaceFile();
 
+#ifdef USE_MPI
+    launchLocalSearchWorkers();
+#endif
+
     IteratedLocalSearch::Options ils_options;
     ils_options.search_space_file = search_space_file_;
     ils_options.instance_file = instance_file_;
     ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_0";
-    ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_);
-    ils_options.random_seed = static_cast<unsigned int>(iteration_);
+    ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_) + "_worker_0";
+    ils_options.random_seed = static_cast<unsigned int>(iteration_ * nb_workers_ + 0);
     ils_options.evaluation_budget = max_evaluations_;
     ils_options.perturbation_strength = 3;
     ils_options.random_initial_samples = 0;
@@ -764,10 +770,117 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     // This accessor must exist in IteratedLocalSearch.
     const auto local_results = ils_->getEvaluationsWithConfigurations();
     std::vector<EvaluationRecord> synced_results = syncILSResultsToGlobalMemory_(local_results);
+    exploration_results.push_back(std::make_pair(0, synced_results));
+
+#ifdef USE_MPI
+    waitLocalSearchWorkers();
+#endif
+
+    // Read the results of the other workers and sync them to global memory
+    for (int worker_id = 1; worker_id < nb_workers_; ++worker_id) {
+        std::vector<std::pair<Configuration, EvaluationRecord>> worker_local_results = readLocalResultsFromFile_(worker_id);
+        std::vector<EvaluationRecord> worker_synced_results = syncILSResultsToGlobalMemory_(worker_local_results);
+        exploration_results.push_back(std::make_pair(worker_id, worker_synced_results));
+    }    
 
     logger_.info("IteratedLocalSearch Engine completed.");
-    return { {0, synced_results} };
+    return exploration_results;
 }
+
+std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngine::readLocalResultsFromFile_(int worker_id) {
+    std::vector<std::pair<Configuration, EvaluationRecord>> local_results;
+
+    const std::string local_results_file =
+        ils_working_dir_ + "local_results/local_results_" + std::to_string(iteration_) +
+        "_worker_" + std::to_string(worker_id) + ".txt";
+
+    std::ifstream file(local_results_file);
+    if (!file.is_open()) {
+        logger_.info("Error opening local results file for reading: ", local_results_file);
+        return local_results;
+    }
+
+    auto parseBool = [](const std::string& value) {
+        return value == "1" || value == "true" || value == "True";
+    };
+
+    std::string line;
+    bool in_configuration = false;
+    std::map<std::string, Value> config_map;
+    double objective_value = -1.0;
+    int time_evaluated = -1;
+    bool mip_start_used = false;
+    std::optional<MipStartId> used_mip_start_id = std::nullopt;
+    bool produced_mip_start = false;
+
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
+
+        if (line == "Configuration:") {
+            in_configuration = true;
+            config_map.clear();
+            objective_value = -1.0;
+            time_evaluated = -1;
+            mip_start_used = false;
+            used_mip_start_id = std::nullopt;
+            produced_mip_start = false;
+            continue;
+        }
+
+        if (!in_configuration) {
+            continue;
+        }
+
+        if (line == "EndConfiguration") {
+            EvaluationRecord record{};
+            record.evaluation_id = 0;
+            record.objective_value = objective_value;
+            record.time_evaluated = time_evaluated;
+            record.configuration_id = 0;
+            record.mip_start_used = mip_start_used;
+            record.used_mip_start_id = used_mip_start_id;
+            record.mip_start_source_evaluation_id = std::nullopt;
+            record.produced_mip_start = produced_mip_start;
+            record.produced_mip_start_id = std::nullopt;
+            record.worker_id = worker_id;
+            record.iteration = iteration_;
+            record.phase = 0;
+
+            local_results.emplace_back(Configuration(config_map, mip_start_used), record);
+            in_configuration = false;
+            continue;
+        }
+
+        const std::size_t eq_pos = line.find('=');
+        if (eq_pos == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = line.substr(0, eq_pos);
+        const std::string value = line.substr(eq_pos + 1);
+
+        if (key == "ObjectiveValue") {
+            objective_value = std::stod(value);
+        } else if (key == "TimeEvaluated") {
+            time_evaluated = std::stoi(value);
+        } else if (key == "MipStartUsed") {
+            mip_start_used = parseBool(value);
+        } else if (key == "UsedMipStartId") {
+            if (value != "-1" && value != "18446744073709551615") {
+                used_mip_start_id = static_cast<MipStartId>(std::stoull(value));
+            }
+        } else if (key == "ProducedMipStart") {
+            produced_mip_start = parseBool(value);
+        } else {
+            config_map.emplace(key, Value(value));
+        }
+    }
+
+    return local_results;
+}
+
 
 #ifdef USE_MPI
 void ParamILSWorker::callParamILS() {
@@ -786,6 +899,7 @@ void LocalSearchEngine::launchLocalSearchWorkers() {
     WorkerOrder order;
     order.step = 1; // exploration step
     order.iteration = iteration_;
+    order.nb_evaluations = max_evaluations_;
     MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
     logger_.info("Local Search Workers launched.");
 }
@@ -795,5 +909,68 @@ void LocalSearchEngine::waitLocalSearchWorkers() {
     // Implementation to wait for local search workers using MPI
     MPI_Barrier(MPI_COMM_WORLD);
     logger_.info("Local Search Workers have completed.");
+}
+
+void IteratedLocalSearchWorker::callIteratedLocalSearch() {
+    int nb_workers = 0;
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
+    Logger worker_logger(Verbosity::Debug, std::cout);
+    std::string search_space_file = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
+    if (mip_start_ && worker_id_ == 1) {
+        mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
+        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
+    } else {
+        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file.");
+    }
+
+    IteratedLocalSearch::Options ils_options;
+    ils_options.search_space_file = search_space_file;
+    ils_options.instance_file = instance_file_;
+    ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    ils_options.random_seed = static_cast<unsigned int>(iteration_ * nb_workers + worker_id_);
+    ils_options.evaluation_budget = max_evaluations_;
+    ils_options.perturbation_strength = 3;
+    ils_options.random_initial_samples = 0;
+    ils_options.restart_probability = 0.10;
+    ils_options.accept_ties = false;
+    ils_options.acceptance_threshold = 0.01;
+    ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
+    if (ils_options.use_mip_starts) {
+        ils_options.mip_start_file = mip_start_file_;
+    }
+    ils_options.nb_threads_solver = nb_threads_solver_;
+    ils_options.cutoff_solver_time = cutoff_solver_time_;
+
+    IteratedLocalSearch ils(worker_logger, ils_options);
+    ils.run();
+
+    const auto local_results = ils.getEvaluationsWithConfigurations();
+    // Write all the local results to a file that will be read by the master process to sync with global memory
+    std::string local_results_file = ils_working_dir_ + "local_results/local_results_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
+    std::ofstream myfile(local_results_file);
+    if (!myfile.is_open()) {
+        worker_logger.info("Error opening local results file for writing: ", local_results_file);
+        return;
+    }
+    for (const auto& pair : local_results) {
+        const Configuration& config = pair.first;
+        const EvaluationRecord& record = pair.second;
+
+        myfile << "Configuration:" << std::endl;
+        for (const auto& param_pair : config.getConfigurationMap()) {
+            myfile << param_pair.first << "=" << param_pair.second.getString() << std::endl;
+        }
+        myfile << "ObjectiveValue=" << record.objective_value << std::endl;
+        myfile << "TimeEvaluated=" << record.time_evaluated << std::endl;
+        myfile << "MipStartUsed=" << record.mip_start_used << std::endl;
+        if (record.mip_start_used) {
+            myfile << "UsedMipStartId=" << record.used_mip_start_id.value_or(-1) << std::endl;
+        }
+        myfile << "ProducedMipStart=" << record.produced_mip_start << std::endl;
+        //Todo: we could also write the produced mip start file path if produced_mip_start is true but change memory for that to store the path
+        myfile << "EndConfiguration" << std::endl;
+    }
+    myfile.close();
 }
 #endif
