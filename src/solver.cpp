@@ -14,10 +14,6 @@ void CPLEXSolver::solve() {
     try {
         IloModel model(env);
         IloCplex cplex(model);
-        // Load model from instance file
-        cplex.importModel(model, instance_file_.c_str());
-        // Set number of threads
-        //cplex.setParam(IloCplex::Param::Threads, nb_threads_);
         
         // Set log file
         std::ofstream logStream(log_file_, std::ios::app);
@@ -30,12 +26,18 @@ void CPLEXSolver::solve() {
         cplex.setOut(logStream);
         cplex.setWarning(logStream);
         cplex.setError(logStream);
-        
-
+    
+        // Load model from instance file
+        cplex.importModel(model, instance_file_.c_str());
+    
         // Set parameters from config file
         cplex.readParam(config_file_path_.c_str());
+    
+        // Set number of threads
+        cplex.setParam(IloCplex::Param::Threads, nb_threads_);
         // Set time limit
         cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
+       
         // Set mip start
         //if (!mip_start_file_.empty()) {
         //    cplex.readMIPStart(mip_start_file_.c_str());
