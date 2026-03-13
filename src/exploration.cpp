@@ -918,7 +918,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
     Logger worker_logger(Verbosity::Debug, std::cout);
     std::string search_space_file = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
-    if (mip_start_ && worker_id_ == 1) {
+    if (mip_start_ && worker_id_ == 1 && iteration_ > 1) {
         mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
         worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
     } else {
