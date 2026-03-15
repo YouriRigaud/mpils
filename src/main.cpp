@@ -12,6 +12,7 @@
 #endif
 
 #include <cstring>
+#include <stdexcept>
 #include <iostream>
 #include <string>
 #include <fstream>
@@ -32,11 +33,26 @@ struct TunerOptions {
 };
 
 void getTunerOptions(int argc, char** argv, TunerOptions& options) {
-    // Implementation to parse command line arguments and set options
-    // TODO: implement argument parsing
-    // If argument provided, use it as instance file
-    if (argc > 1) {
-        options.instance_file = std::string(argv[1]);
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--shared-cache") == 0) {
+            options.use_shared_cache = true;
+        } else if (std::strcmp(argv[i], "--no-shared-cache") == 0) {
+            options.use_shared_cache = false;
+        } else if (std::strcmp(argv[i], "--solver-threads") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-threads");
+            }
+            options.nb_threads_solver = std::stoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--solver-time") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-time");
+            }
+            options.cutoff_solver_time = std::stod(argv[++i]);
+        } else if (argv[i][0] != '-') {
+            options.instance_file = std::string(argv[i]);
+        } else {
+            throw std::runtime_error("Unknown command line option: " + std::string(argv[i]));
+        }
     }
 }
 
