@@ -92,6 +92,7 @@ void Exploration::run() {
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
+    logger_.info("ILS shared cache is ", use_shared_cache_ ? "enabled" : "disabled", " for this exploration phase.");
 
     setEngine(std::make_unique<IteratedLocalSearchEngine>(
         memory_,
@@ -105,7 +106,8 @@ void Exploration::run() {
         iteration_,
         nb_threads_solver_,
         cutoff_solver_time_,
-        nb_workers_
+        nb_workers_,
+        use_shared_cache_
     ));
 
     if (!engine_) {
@@ -122,7 +124,8 @@ void Exploration::run() {
             iteration_,
             nb_threads_solver_,
             cutoff_solver_time_,
-            nb_workers_
+            nb_workers_,
+            use_shared_cache_
         ));
         logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
@@ -758,7 +761,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.restart_probability = 0.10;
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.01;
-    ils_options.use_shared_cache = true;
+    ils_options.use_shared_cache = use_shared_cache_;
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
         ils_options.mip_start_file = mip_start_file_;
@@ -937,7 +940,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.restart_probability = 0.10;
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.01;
-    ils_options.use_shared_cache = true;
+    ils_options.use_shared_cache = use_shared_cache_;
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
         ils_options.mip_start_file = mip_start_file_;

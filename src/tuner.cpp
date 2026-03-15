@@ -262,9 +262,9 @@ void Worker::receiveOrderFromMaster() {
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
     if (worker_id_ == 1) {
-        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, true)); // mip start for worker 1
+        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, use_shared_cache_, true)); // mip start for worker 1
     } else {
-        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, false)); // no mip start for other workers
+        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, use_shared_cache_, false)); // no mip start for other workers
     }
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding

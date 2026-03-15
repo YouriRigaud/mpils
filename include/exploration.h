@@ -80,6 +80,7 @@ class LocalSearchEngine {
 class IteratedLocalSearchEngine : public LocalSearchEngine {
     private:
         std::unique_ptr<IteratedLocalSearch> ils_;
+        bool use_shared_cache_;
 
         const std::string ils_working_dir_ = "tuner_working_dir/iterated_local_search/";
         std::string search_space_file_;
@@ -112,8 +113,10 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers,
+            bool use_shared_cache,
             bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, mip_start)
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, mip_start),
+           use_shared_cache_(use_shared_cache)
         {}
 
         std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override;
@@ -205,6 +208,7 @@ class Exploration {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         int nb_workers_;
+        bool use_shared_cache_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -224,7 +228,8 @@ class Exploration {
             const std::string& solver_log_file,
             int nb_threads_solver,
             double cutoff_solver_time,
-            int nb_workers
+            int nb_workers,
+            bool use_shared_cache
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -234,7 +239,8 @@ class Exploration {
            solver_log_file_(solver_log_file),
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
-           nb_workers_(nb_workers)
+           nb_workers_(nb_workers),
+           use_shared_cache_(use_shared_cache)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {
@@ -253,17 +259,19 @@ class LocalSearchWorker {
         bool mip_start_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        bool use_shared_cache_;
         
     public:
-        LocalSearchWorker(int worker_id, int iteration, bool mip_start = false): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start) {}
+        LocalSearchWorker(int worker_id, int iteration, bool mip_start = false, bool use_shared_cache = false): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), use_shared_cache_(use_shared_cache) {}
 
         LocalSearchWorker(
             int worker_id,
             int iteration,
             int nb_threads_solver,
             double cutoff_solver_time,
-            bool mip_start = false
-        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time)
+            bool mip_start = false,
+            bool use_shared_cache = false
+        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), use_shared_cache_(use_shared_cache)
         {}
 
         virtual ~LocalSearchWorker() = default;
@@ -283,8 +291,9 @@ class ParamILSWorker : public LocalSearchWorker {
         ParamILSWorker(
             int worker_id,
             int iteration,
-            bool mip_start = false
-        ): LocalSearchWorker(worker_id, iteration, mip_start)
+            bool mip_start = false,
+            bool use_shared_cache = false
+        ): LocalSearchWorker(worker_id, iteration, mip_start, use_shared_cache)
         {}
 
         void run() override {
@@ -311,8 +320,9 @@ class IteratedLocalSearchWorker : public LocalSearchWorker {
             double cutoff_solver_time,
             std::string instance_file,
             std::string solver_log_file,
+            bool use_shared_cache,
             bool mip_start = false
-        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, mip_start), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
+        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, mip_start, use_shared_cache), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
         {}
 
         void run() override {

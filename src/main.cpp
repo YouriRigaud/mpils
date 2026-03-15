@@ -11,6 +11,7 @@
 #include <mpi.h>
 #endif
 
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <fstream>
@@ -27,6 +28,7 @@ struct TunerOptions {
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;
     int nb_workers = 1;
+    bool use_shared_cache = false;
 };
 
 void getTunerOptions(int argc, char** argv, TunerOptions& options) {
@@ -48,6 +50,7 @@ void writeParamILSInstanceFile(const std::string& filepath, const std::string& i
 void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
+    std::cout << "ILS shared cache: " << (options.use_shared_cache ? "enabled" : "disabled") << std::endl;
 
     // init a clock to measure tuning time
     GlobalTimer::start();
@@ -68,7 +71,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.nb_parameter_to_evaluate_expansion,
         options.nb_threads_solver,
         options.cutoff_solver_time,
-        options.nb_workers
+        options.nb_workers,
+        options.use_shared_cache
     );
     
     tuner.setup();
@@ -97,7 +101,7 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
