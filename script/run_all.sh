@@ -84,6 +84,7 @@ run_cplex_test() {
   "$CPLEX_APP" -c \
     "read $instance_path" \
     "read $prm_file" \
+    "set threads 2" \
     "optimize" \
     "quit" \
     >"$cplex_log" 2>&1
