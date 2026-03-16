@@ -766,7 +766,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.random_initial_samples = 0;
     ils_options.restart_probability = 0.10;
     ils_options.accept_ties = false;
-    ils_options.acceptance_threshold = 0.01;
+    ils_options.acceptance_threshold = 0.0;
     ils_options.use_shared_cache = use_shared_cache_;
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
@@ -955,7 +955,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.random_initial_samples = 0;
     ils_options.restart_probability = 0.10;
     ils_options.accept_ties = false;
-    ils_options.acceptance_threshold = 0.01;
+    ils_options.acceptance_threshold = 0.0;
     ils_options.use_shared_cache = use_shared_cache_;
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {

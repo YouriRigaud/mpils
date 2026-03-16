@@ -173,7 +173,7 @@ bool Tuner::stopConditionMet() {
         return true;
     }
 
-    if (memory_.getBestObjective() <= 0.01) {
+    if (memory_.getBestObjective() <= 0.0) {
         logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
         return true;
     }
@@ -202,7 +202,7 @@ void Tuner::run() {
         expansion_.run();
 
         // Check stopping condition
-        if (memory_.getBestObjective() <= 0.01) {
+        if (memory_.getBestObjective() <= 0.0) {
             logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
 #ifdef USE_MPI
             sendStopOrderToWorkers();

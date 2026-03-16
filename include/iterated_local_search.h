@@ -229,7 +229,7 @@ class IteratedLocalSearch {
             std::size_t random_initial_samples = 0;
             double restart_probability = 0.1;
             bool accept_ties = false;
-            double acceptance_threshold = 0.01;
+            double acceptance_threshold = 0.0;
             bool use_shared_cache = false;
 
             bool use_mip_starts = false;
