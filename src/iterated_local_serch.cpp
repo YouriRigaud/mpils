@@ -617,8 +617,114 @@ Configuration LocalSearchSpace::sampleRandomConfiguration(std::mt19937& rng, boo
 // IteratedLocalSearch implementation
 // ============================================================
 
+void IteratedLocalSearch::initializeGlobalStop_() {
+#ifdef USE_MPI
+    int initialized = 0;
+    MPI_Initialized(&initialized);
+    mpi_available_ = initialized != 0;
+    if (!mpi_available_) {
+        return;
+    }
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank_);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size_);
+    pending_stop_signals_.clear();
+    global_stop_published_ = false;
+#endif
+}
+
+void IteratedLocalSearch::publishGlobalStop_() {
+#ifdef USE_MPI
+    if (!mpi_available_ || world_size_ <= 1 || global_stop_published_) {
+        return;
+    }
+
+    global_stop_published_ = true;
+    flushPendingStopSignals_();
+
+    for (int rank = 0; rank < world_size_; ++rank) {
+        if (rank == world_rank_) {
+            continue;
+        }
+
+        pending_stop_signals_.push_back(PendingStopSignal{1, MPI_REQUEST_NULL, rank});
+        PendingStopSignal& signal = pending_stop_signals_.back();
+        MPI_Isend(
+            &signal.payload,
+            1,
+            MPI_INT,
+            rank,
+            kGlobalStopTag,
+            MPI_COMM_WORLD,
+            &signal.request
+        );
+    }
+#endif
+}
+
+void IteratedLocalSearch::pollGlobalStop_() {
+#ifdef USE_MPI
+    if (!mpi_available_ || world_size_ <= 1) {
+        return;
+    }
+
+    flushPendingStopSignals_();
+
+    int has_message = 0;
+    MPI_Status status;
+    MPI_Iprobe(MPI_ANY_SOURCE, kGlobalStopTag, MPI_COMM_WORLD, &has_message, &status);
+
+    while (has_message) {
+        int payload = 0;
+        MPI_Recv(&payload, 1, MPI_INT, status.MPI_SOURCE, kGlobalStopTag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        if (payload != 0 && !stop_condition_met_) {
+            logger_.info("Received global ILS stop signal from rank ", status.MPI_SOURCE, ".");
+            stop_condition_met_ = true;
+        }
+        MPI_Iprobe(MPI_ANY_SOURCE, kGlobalStopTag, MPI_COMM_WORLD, &has_message, &status);
+    }
+#endif
+}
+
+void IteratedLocalSearch::flushPendingStopSignals_() {
+#ifdef USE_MPI
+    if (!mpi_available_ || pending_stop_signals_.empty()) {
+        return;
+    }
+
+    auto it = pending_stop_signals_.begin();
+    while (it != pending_stop_signals_.end()) {
+        int completed = 0;
+        MPI_Test(&it->request, &completed, MPI_STATUS_IGNORE);
+        if (completed) {
+            it = pending_stop_signals_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+#endif
+}
+
+void IteratedLocalSearch::waitForPendingStopSignals_() {
+#ifdef USE_MPI
+    if (!mpi_available_ || pending_stop_signals_.empty()) {
+        return;
+    }
+
+    std::vector<MPI_Request> requests;
+    requests.reserve(pending_stop_signals_.size());
+    for (auto& signal : pending_stop_signals_) {
+        requests.push_back(signal.request);
+    }
+
+    MPI_Waitall(static_cast<int>(requests.size()), requests.data(), MPI_STATUSES_IGNORE);
+    pending_stop_signals_.clear();
+#endif
+}
+
 void IteratedLocalSearch::createSearchSpace_() {
     logger_.info("Creating local search space from parameter space file: ", options_.search_space_file);
+    initializeGlobalStop_();
     if (options_.use_shared_cache) {
         shared_objective_cache_.initialize();
     }
@@ -943,13 +1049,20 @@ void IteratedLocalSearch::updateIncumbentIfNeeded_(const Configuration& candidat
     }
 }
 
-bool IteratedLocalSearch::terminationCriterionMet_() const {
+bool IteratedLocalSearch::terminationCriterionMet_() {
+    pollGlobalStop_();
     return stop_condition_met_ || nb_evaluations_ >= options_.evaluation_budget;
 }
 
 void IteratedLocalSearch::updateStopConditionFromObjective_(double objective) {
     if (objective <= options_.acceptance_threshold) {
+        const bool already_stopped = stop_condition_met_;
         stop_condition_met_ = true;
+        if (!already_stopped) {
+            logger_.info("Stopping local search: objective ", objective,
+                         " reached the acceptance threshold ", options_.acceptance_threshold, ".");
+            publishGlobalStop_();
+        }
     }
 }
 
@@ -998,6 +1111,7 @@ void IteratedLocalSearch::run() {
         shared_objective_cache_.pollIncoming();
         shared_objective_cache_.waitForPendingSends();
     }
+    waitForPendingStopSignals_();
 
     logger_.info("Local search phase completed.");
     logger_.info("Total number of new local-search evaluations: ", static_cast<int>(nb_evaluations_));

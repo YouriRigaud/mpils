@@ -257,6 +257,21 @@ class IteratedLocalSearch {
         Configuration incumbent_solution_;
         Configuration current_configuration_;
 
+#ifdef USE_MPI
+        struct PendingStopSignal {
+            int payload = 1;
+            MPI_Request request = MPI_REQUEST_NULL;
+            int destination = -1;
+        };
+
+        std::vector<PendingStopSignal> pending_stop_signals_;
+        bool mpi_available_ = false;
+        int world_rank_ = 0;
+        int world_size_ = 1;
+        bool global_stop_published_ = false;
+        static constexpr int kGlobalStopTag = 702;
+#endif
+
         void createSearchSpace_();
         void checkMipStartFile_();
         void initializeFromSearchSpace_();
@@ -283,9 +298,15 @@ class IteratedLocalSearch {
         Configuration iterativeFirstImprovement_(const Configuration& start_config);
         Configuration perturb_(const Configuration& config);
         void updateIncumbentIfNeeded_(const Configuration& candidate);
-        bool terminationCriterionMet_() const;
+        bool terminationCriterionMet_();
         void updateStopConditionFromObjective_(double objective);
         int elapsedSeconds_() const;
+
+        void initializeGlobalStop_();
+        void publishGlobalStop_();
+        void pollGlobalStop_();
+        void flushPendingStopSignals_();
+        void waitForPendingStopSignals_();
 
         std::string buildConfigFilePath_(const Configuration& config) const;
         std::string buildLogFilePath_(const Configuration& config) const;
