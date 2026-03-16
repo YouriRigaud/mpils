@@ -152,8 +152,10 @@ void Exploration::run() {
 std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
-    if (iteration_ > 1) {
+    if (iteration_ > 1 && nb_workers_ > 1) {
         mip_start_ = true;
+    } else {
+        mip_start_ = false;
     }
     logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
     
@@ -752,8 +754,10 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
 
     std::vector<std::pair<int, std::vector<EvaluationRecord>>> exploration_results;
 
-    if (iteration_ > 1) {
+    if (iteration_ > 1 && nb_workers_ > 1) {
         mip_start_ = true;
+    } else {
+        mip_start_ = false;
     }
     logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
 
