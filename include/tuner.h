@@ -6,6 +6,7 @@
 #ifndef TUNER_H
 #define TUNER_H
 
+#include "tuning_objective.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "exploration.h"
@@ -33,6 +34,7 @@ class Tuner {
         const double cutoff_solver_time_;          ///< Cutoff time for each solver run
         const int nb_workers_;                     ///< Number of worker processes for parallel execution
         const bool use_shared_cache_;              ///< Whether ILS workers should share cached objectives
+        const TuningObjective tuning_objective_; ///< Objective used by direct CPLEX paths
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -70,7 +72,8 @@ class Tuner {
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers,
-            bool use_shared_cache
+            bool use_shared_cache,
+            TuningObjective tuning_objective
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -82,10 +85,11 @@ class Tuner {
             cutoff_solver_time_(cutoff_solver_time),
             nb_workers_(nb_workers),
             use_shared_cache_(use_shared_cache),
+            tuning_objective_(tuning_objective),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_),
-            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, tuning_objective_),
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 
@@ -132,6 +136,7 @@ class Worker {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         bool use_shared_cache_;
+        TuningObjective tuning_objective_;
         int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
@@ -156,7 +161,7 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, TuningObjective tuning_objective)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
@@ -164,7 +169,8 @@ class Worker {
               solver_log_file_(solver_log_file),
               nb_threads_solver_(nb_threads_solver),
               cutoff_solver_time_(cutoff_solver_time),
-              use_shared_cache_(use_shared_cache)
+              use_shared_cache_(use_shared_cache),
+              tuning_objective_(tuning_objective)
         {}
 
         void run(); // Run the worker process

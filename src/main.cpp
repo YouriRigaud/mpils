@@ -6,6 +6,7 @@
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
 #include "../include/globaltimer.h"
+#include "../include/tuning_objective.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -30,6 +31,7 @@ struct TunerOptions {
     double cutoff_solver_time = 15.0;
     int nb_workers = 1;
     bool use_shared_cache = false;
+    TuningObjective tuning_objective = TuningObjective::Gap;
 };
 
 void getTunerOptions(int argc, char** argv, TunerOptions& options) {
@@ -48,6 +50,11 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("Missing value for --solver-time");
             }
             options.cutoff_solver_time = std::stod(argv[++i]);
+        } else if (std::strcmp(argv[i], "--tuning-objective") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --tuning-objective");
+            }
+            options.tuning_objective = parseTuningObjective(argv[++i]);
         } else if (argv[i][0] != '-') {
             options.instance_file = std::string(argv[i]);
         } else {
@@ -67,6 +74,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
     std::cout << "ILS shared cache: " << (options.use_shared_cache ? "enabled" : "disabled") << std::endl;
+    std::cout << "Tuning objective: " << tuningObjectiveToString(options.tuning_objective) << std::endl;
 
     // init a clock to measure tuning time
     GlobalTimer::start();
@@ -88,7 +96,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.nb_threads_solver,
         options.cutoff_solver_time,
         options.nb_workers,
-        options.use_shared_cache
+        options.use_shared_cache,
+        options.tuning_objective
     );
     
     tuner.setup();
@@ -117,7 +126,7 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.tuning_objective);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }

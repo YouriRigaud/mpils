@@ -32,7 +32,7 @@
 #include <algorithm>
 #include <string>
 
-static constexpr double kMaxObjective = 100.0;
+static constexpr double kMaxObjective = std::numeric_limits<double>::max();
 
 using EvaluationId = uint64_t;
 using MipStartId = uint64_t;
@@ -51,7 +51,8 @@ struct ConfigurationStats {
  */
 struct EvaluationRecord {
     EvaluationId evaluation_id;
-    double objective_value;
+    double objective_value; ///< Tuning objective value for this evaluation (currently upper bound with fallback)
+    std::optional<double> gap; ///< Solver gap recorded for this evaluation, if available
     std::optional<double> upper_bound; ///< Solver upper bound recorded for this evaluation, if available
     std::optional<double> lower_bound; ///< Solver lower bound recorded for this evaluation, if available
     int time_evaluated;
@@ -79,7 +80,8 @@ struct MipStartRecord {
 };
 
 struct RecordEvaluationOptions {
-    double objective_value = -1.0;    /// Objective value obtained from the evaluation. If not evaluated, can be set to -1.0 or any negative value.
+    double objective_value = std::numeric_limits<double>::max(); /// Tuning objective value obtained from the evaluation.
+    std::optional<double> gap = std::nullopt; /// Solver gap obtained from the evaluation, if available.
     std::optional<double> upper_bound = std::nullopt; /// Solver upper bound obtained from the evaluation, if available.
     std::optional<double> lower_bound = std::nullopt; /// Solver lower bound obtained from the evaluation, if available.
     int time_evaluated = -1;    /// Time when the configuration was evaluated (in seconds since tuning started).
@@ -237,6 +239,14 @@ class TunerMemory {
             return best_objective_;
         }
 
+        /** @brief Return true if any recorded evaluation has a gap at or below the given threshold */
+        bool hasEvaluationAtOrBelowGap(double threshold) const {
+            return std::any_of(evaluations_.begin(), evaluations_.end(),
+                               [threshold](const EvaluationRecord& record) {
+                                   return record.gap.has_value() && record.gap.value() <= threshold;
+                               });
+        }
+
         /** @brief Get the best objective value found so far among evaluations that did not use MIP start */
         double getBestObjectiveWithoutMipStart() const {
             return best_objective_without_mip_start_;
@@ -248,12 +258,13 @@ class TunerMemory {
                 throw std::runtime_error("Could not open file to write evaluation log: " + filename);
             }
             // Write header
-            file << "EvalID,TimeEvaluated,ObjectiveValue,UpperBound,LowerBound,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
+            file << "EvalID,TimeEvaluated,ObjectiveValue,Gap,UpperBound,LowerBound,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
             // Write records
             for (const auto& record : evaluations_) {
                 file << record.evaluation_id << ","
                      << record.time_evaluated << ","
                      << record.objective_value << ","
+                     << (record.gap.has_value() ? std::to_string(record.gap.value()) : "") << ","
                      << (record.upper_bound.has_value() ? std::to_string(record.upper_bound.value()) : "") << ","
                      << (record.lower_bound.has_value() ? std::to_string(record.lower_bound.value()) : "") << ","
                      << record.configuration_id << ",";

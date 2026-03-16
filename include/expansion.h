@@ -6,6 +6,7 @@
 #ifndef EXPANSION_H
 #define EXPANSION_H
 
+#include "tuning_objective.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "parameter_space.h"
@@ -27,6 +28,7 @@ struct ExpansionEvaluationResult {
     int config_id;
     double objective_value;
     int evaluated_time;
+    std::optional<double> gap;
     std::optional<double> upper_bound;
     std::optional<double> lower_bound;
 };
@@ -49,6 +51,7 @@ class Expansion {
         int nb_parameter_to_evaluate_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        TuningObjective tuning_objective_;
 
         double best_objective_value_;
 
@@ -66,6 +69,7 @@ class Expansion {
             Parameter& param,
             const Configuration& config,
             double objective_value,
+            std::optional<double> gap,
             std::optional<double> upper_bound,
             std::optional<double> lower_bound,
             int evaluated_time,
@@ -89,7 +93,8 @@ class Expansion {
             int& iteration,
             int nb_parameter_to_evaluate,
             int nb_threads_solver,
-            double cutoff_solver_time
+            double cutoff_solver_time,
+            TuningObjective tuning_objective
         ): logger_(logger),
            memory_(memory),
            parameter_space_(parameter_space),
@@ -99,7 +104,8 @@ class Expansion {
            iteration_(iteration),
            nb_parameter_to_evaluate_(nb_parameter_to_evaluate),
            nb_threads_solver_(nb_threads_solver),
-           cutoff_solver_time_(cutoff_solver_time)
+           cutoff_solver_time_(cutoff_solver_time),
+           tuning_objective_(tuning_objective)
         {}
 
         void run();
@@ -114,6 +120,7 @@ class ExpansionWorker {
         std::string solver_log_file_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        TuningObjective tuning_objective_;
 
         std::vector<std::pair<int, std::string>> configs_to_evaluate_; // Pair of (config_id, config_file_path)
         std::vector<ExpansionEvaluationResult> evaluation_results_;
@@ -123,8 +130,8 @@ class ExpansionWorker {
         void sendConfigsResultToMaster();
 
     public:
-        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time)
-            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time) {}
+        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, TuningObjective tuning_objective)
+            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), tuning_objective_(tuning_objective) {}
 
         void run();
 };

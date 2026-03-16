@@ -89,6 +89,9 @@ void Exploration::run() {
     if (nb_evaluations > 30) {
         nb_evaluations = 30;
     }
+    if (nb_evaluations < 5) {
+        nb_evaluations = 5;
+    }
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
@@ -107,7 +110,8 @@ void Exploration::run() {
         nb_threads_solver_,
         cutoff_solver_time_,
         nb_workers_,
-        use_shared_cache_
+        use_shared_cache_,
+        tuning_objective_
     ));
 
     if (!engine_) {
@@ -125,7 +129,8 @@ void Exploration::run() {
             nb_threads_solver_,
             cutoff_solver_time_,
             nb_workers_,
-            use_shared_cache_
+            use_shared_cache_,
+            tuning_objective_
         ));
         logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
@@ -406,7 +411,10 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
         }
         options.produced_mip_start = false; // Exploration phase does not produce MIP starts
         options.objective_value = obj;
-        options.upper_bound = std::nullopt; // ParamILS results are reconstructed from logs, so bounds are not available here
+        if (gap >= 0) {
+            options.gap = gap;
+        }
+        options.upper_bound = std::nullopt;
         options.lower_bound = std::nullopt;
         options.time_evaluated = config_elapsed_time;
         options.worker_id = worker_id;
@@ -515,7 +523,7 @@ void LocalSearchEngine::setMipStartFile() {
     best_config.generateConfigFile(config_path);
     std::string mip_void = ""; // We do not want to use a mip start file for the solver, we just want to generate it with cplex, so we give it an empty file that does not exist, so it does not use it but it generates it
     // Call cplex on the best configuration found so far to generate the mip start file
-    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_void, mip_start_file_);
+    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_void, mip_start_file_, tuning_objective_);
     solver.solve();
 
     if (!std::filesystem::exists(mip_start_file_)) {
@@ -528,6 +536,7 @@ void LocalSearchEngine::setMipStartFile() {
     RecordEvaluationOptions options;
     options.mip_start_used = false; // This evaluation is not using a mip start, it is producing one
     options.objective_value = objective_value;
+    options.gap = solver.getGap();
     options.upper_bound = solver.getUpperBound();
     options.lower_bound = solver.getLowerBound();
     options.time_evaluated = evaluated_time;
@@ -712,6 +721,7 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
 
         RecordEvaluationOptions options;
         options.objective_value = local_record.objective_value;
+        options.gap = local_record.gap;
         options.upper_bound = local_record.upper_bound;
         options.lower_bound = local_record.lower_bound;
         options.time_evaluated = local_record.time_evaluated;
@@ -769,12 +779,13 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.0;
     ils_options.use_shared_cache = use_shared_cache_;
-    ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
-    if (ils_options.use_mip_starts) {
-        ils_options.mip_start_file = mip_start_file_;
-    }
+    // Worker 0 never uses MIP starts. Only MPI worker 1 may consume the
+    // produced MIP start in later iterations.
+    ils_options.use_mip_starts = false;
+    ils_options.mip_start_file = std::nullopt;
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
+    ils_options.tuning_objective = tuning_objective_;
 
     ils_ = std::make_unique<IteratedLocalSearch>(logger_, ils_options);
     ils_->run();
@@ -820,6 +831,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
     bool in_configuration = false;
     std::map<std::string, Value> config_map;
     double objective_value = -1.0;
+    std::optional<double> gap = std::nullopt;
     std::optional<double> upper_bound = std::nullopt;
     std::optional<double> lower_bound = std::nullopt;
     int time_evaluated = -1;
@@ -836,6 +848,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             in_configuration = true;
             config_map.clear();
             objective_value = -1.0;
+            gap = std::nullopt;
             upper_bound = std::nullopt;
             lower_bound = std::nullopt;
             time_evaluated = -1;
@@ -853,6 +866,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             EvaluationRecord record{};
             record.evaluation_id = 0;
             record.objective_value = objective_value;
+            record.gap = gap;
             record.upper_bound = upper_bound;
             record.lower_bound = lower_bound;
             record.time_evaluated = time_evaluated;
@@ -881,6 +895,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
 
         if (key == "ObjectiveValue") {
             objective_value = std::stod(value);
+        } else if (key == "Gap") {
+            gap = std::stod(value);
         } else if (key == "UpperBound") {
             upper_bound = std::stod(value);
         } else if (key == "LowerBound") {
@@ -964,6 +980,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     }
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
+    ils_options.tuning_objective = tuning_objective_;
 
     IteratedLocalSearch ils(worker_logger, ils_options);
     ils.run();
@@ -986,6 +1003,9 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
             myfile << param_pair.first << "=" << param_pair.second.getString() << std::endl;
         }
         myfile << "ObjectiveValue=" << record.objective_value << std::endl;
+        if (record.gap.has_value()) {
+            myfile << "Gap=" << record.gap.value() << std::endl;
+        }
         if (record.upper_bound.has_value()) {
             myfile << "UpperBound=" << record.upper_bound.value() << std::endl;
         }

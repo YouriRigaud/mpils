@@ -766,6 +766,7 @@ void IteratedLocalSearch::injectInitialConfigurationIfAlreadyEvaluated_() {
     EvaluationRecord initial_record{};
     initial_record.evaluation_id = 0;
     initial_record.objective_value = objective_value;
+    initial_record.gap = std::nullopt;
     initial_record.upper_bound = std::nullopt;
     initial_record.lower_bound = std::nullopt;
     initial_record.time_evaluated = GlobalTimer::elapsedSeconds();
@@ -782,7 +783,6 @@ void IteratedLocalSearch::injectInitialConfigurationIfAlreadyEvaluated_() {
     memory_.seedCachedEvaluation(current_configuration_, initial_record);
 
     logger_.info("Seeded initial configuration into local search cache with known objective value: ", objective_value);
-    updateStopConditionFromObjective_(objective_value);
 }
 
 void IteratedLocalSearch::computeInitialConfiguration_() {
@@ -838,7 +838,7 @@ bool IteratedLocalSearch::better_(const Configuration& new_config, const Configu
 
 double IteratedLocalSearch::evaluateConfiguration_(const Configuration& config) {
     EvaluationRecord record = getOrEvaluate_(config);
-    updateStopConditionFromObjective_(record.objective_value);
+    updateStopConditionFromGap_(record.gap);
     return record.objective_value;
 }
 
@@ -907,6 +907,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
                  " with config: ", config_file_path);
 
     double objective_value = std::numeric_limits<double>::max();
+    std::optional<double> gap = std::nullopt;
     std::optional<double> upper_bound = std::nullopt;
     std::optional<double> lower_bound = std::nullopt;
 
@@ -919,10 +920,12 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
             log_file_path,
             options_.nb_threads_solver,
             options_.cutoff_solver_time,
-            mip_start_file
+            mip_start_file,
+            options_.tuning_objective
         );
         solver.solve();
         objective_value = solver.getObjectiveValue();
+        gap = solver.getGap();
         upper_bound = solver.getUpperBound();
         lower_bound = solver.getLowerBound();
     } else {
@@ -932,26 +935,30 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
             config_file_path,
             log_file_path,
             options_.nb_threads_solver,
-            options_.cutoff_solver_time
+            options_.cutoff_solver_time,
+            options_.tuning_objective
         );
         solver.solve();
         objective_value = solver.getObjectiveValue();
+        gap = solver.getGap();
         upper_bound = solver.getUpperBound();
         lower_bound = solver.getLowerBound();
     }
 
-    return createEvaluationRecord_(config, objective_value, upper_bound, lower_bound);
+    return createEvaluationRecord_(config, objective_value, gap, upper_bound, lower_bound);
 }
 
 EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
     const Configuration& config,
     double objective_value,
+    std::optional<double> gap,
     std::optional<double> upper_bound,
     std::optional<double> lower_bound
 ) {
     EvaluationRecord record;
     record.evaluation_id = static_cast<EvaluationId>(next_evaluation_id_++);
     record.objective_value = objective_value;
+    record.gap = gap;
     record.upper_bound = upper_bound;
     record.lower_bound = lower_bound;
     record.time_evaluated = GlobalTimer::elapsedSeconds();
@@ -975,6 +982,7 @@ EvaluationRecord IteratedLocalSearch::createSharedEvaluationRecord_(const Config
     EvaluationRecord record;
     record.evaluation_id = 0;
     record.objective_value = objective_value;
+    record.gap = std::nullopt;
     record.upper_bound = std::nullopt;
     record.lower_bound = std::nullopt;
     record.time_evaluated = GlobalTimer::elapsedSeconds();
@@ -1054,12 +1062,12 @@ bool IteratedLocalSearch::terminationCriterionMet_() {
     return stop_condition_met_ || nb_evaluations_ >= options_.evaluation_budget;
 }
 
-void IteratedLocalSearch::updateStopConditionFromObjective_(double objective) {
-    if (objective <= options_.acceptance_threshold) {
+void IteratedLocalSearch::updateStopConditionFromGap_(const std::optional<double>& gap) {
+    if (gap.has_value() && gap.value() <= options_.acceptance_threshold) {
         const bool already_stopped = stop_condition_met_;
         stop_condition_met_ = true;
         if (!already_stopped) {
-            logger_.info("Stopping local search: objective ", objective,
+            logger_.info("Stopping local search: gap ", gap.value(),
                          " reached the acceptance threshold ", options_.acceptance_threshold, ".");
             publishGlobalStop_();
         }

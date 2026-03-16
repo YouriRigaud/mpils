@@ -11,6 +11,7 @@
 void CPLEXSolver::solve() {
     logger_.info("Starting CPLEX solver on instance: " + instance_file_ + " with config: " + config_file_path_);
     IloEnv env;
+    gap_ = std::numeric_limits<double>::max();
     upper_bound_ = std::nullopt;
     lower_bound_ = std::nullopt;
     try {
@@ -59,7 +60,7 @@ void CPLEXSolver::solve() {
         const std::string upper_bound_text = upper_bound_.has_value() ? std::to_string(upper_bound_.value()) : "null";
         const std::string lower_bound_text = lower_bound_.has_value() ? std::to_string(lower_bound_.value()) : "null";
 
-        logger_.info("CPLEX results. Objective: ", gap_, ", upper bound: ", upper_bound_text, ", lower bound: ", lower_bound_text);
+        logger_.info("CPLEX results. Gap: ", gap_, ", upper bound: ", upper_bound_text, ", lower bound: ", lower_bound_text);
         if (upper_bound_.has_value() && lower_bound_.has_value() && upper_bound_.value() < lower_bound_.value()) {
             logger_.warn("Inconsistent solver bounds for config ", config_file_path_,
                          ": upper bound ", upper_bound_.value(),
@@ -92,7 +93,21 @@ void CPLEXSolver::solve() {
 }
 
 double CPLEXSolver::getObjectiveValue() {
-    return gap_; // Return gap as objective value
+    switch (tuning_objective_) {
+        case TuningObjective::Gap:
+            return gap_;
+        case TuningObjective::UpperBound:
+            return upper_bound_.value_or(std::numeric_limits<double>::max());
+    }
+
+    return gap_;
+}
+
+std::optional<double> CPLEXSolver::getGap() {
+    if (gap_ == std::numeric_limits<double>::max()) {
+        return std::nullopt;
+    }
+    return gap_;
 }
 
 std::optional<double> CPLEXSolver::getUpperBound() {

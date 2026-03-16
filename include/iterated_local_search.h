@@ -6,6 +6,7 @@
 #ifndef ITERATED_LOCAL_SEARCH_H
 #define ITERATED_LOCAL_SEARCH_H
 
+#include "tuning_objective.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "configuration.h"
@@ -237,6 +238,7 @@ class IteratedLocalSearch {
 
             int nb_threads_solver = 2;
             double cutoff_solver_time = 15.0;
+            TuningObjective tuning_objective = TuningObjective::Gap;
         };
 
     private:
@@ -289,6 +291,7 @@ class IteratedLocalSearch {
         EvaluationRecord createEvaluationRecord_(
             const Configuration& config,
             double objective_value,
+            std::optional<double> gap = std::nullopt,
             std::optional<double> upper_bound = std::nullopt,
             std::optional<double> lower_bound = std::nullopt
         );
@@ -299,7 +302,7 @@ class IteratedLocalSearch {
         Configuration perturb_(const Configuration& config);
         void updateIncumbentIfNeeded_(const Configuration& candidate);
         bool terminationCriterionMet_();
-        void updateStopConditionFromObjective_(double objective);
+        void updateStopConditionFromGap_(const std::optional<double>& gap);
         int elapsedSeconds_() const;
 
         void initializeGlobalStop_();

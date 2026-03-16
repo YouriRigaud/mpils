@@ -173,8 +173,8 @@ bool Tuner::stopConditionMet() {
         return true;
     }
 
-    if (memory_.getBestObjective() <= 0.0) {
-        logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
+    if (memory_.hasEvaluationAtOrBelowGap(0.0)) {
+        logger_.info("Stopping condition met: satisfactory gap achieved.");
         return true;
     }
     
@@ -202,8 +202,8 @@ void Tuner::run() {
         expansion_.run();
 
         // Check stopping condition
-        if (memory_.getBestObjective() <= 0.0) {
-            logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
+        if (memory_.hasEvaluationAtOrBelowGap(0.0)) {
+            logger_.info("Stopping condition met: satisfactory gap achieved.");
 #ifdef USE_MPI
             sendStopOrderToWorkers();
 #endif
@@ -262,9 +262,9 @@ void Worker::receiveOrderFromMaster() {
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
     if (worker_id_ == 1) {
-        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, use_shared_cache_, true)); // mip start for worker 1
+        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, tuning_objective_, use_shared_cache_, true)); // mip start for worker 1
     } else {
-        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, use_shared_cache_, false)); // no mip start for other workers
+        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, tuning_objective_, use_shared_cache_, false)); // no mip start for other workers
     }
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
@@ -277,7 +277,7 @@ void Worker::runExpansionPhase() {
     std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
     std::cout << "Worker " << worker_id_ << " will use solver log file: " << solver_log_file_worker << std::endl;
     // Implementation of expansion phase logic
-    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_));
+    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_, tuning_objective_));
     expansion_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state

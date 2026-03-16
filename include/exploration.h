@@ -6,6 +6,7 @@
 #ifndef EXPLORATION_H
 #define EXPLORATION_H
 
+#include "tuning_objective.h"
 #include "tuner_memory.h"
 #include "logger.h"
 #include "parameter_space.h"
@@ -30,6 +31,7 @@ class LocalSearchEngine {
         int nb_workers_;
         int local_search_start_time_;
         bool mip_start_;
+        TuningObjective tuning_objective_;
         MipStartId used_mip_start_id_;
         std::string mip_start_file_;
 
@@ -56,6 +58,7 @@ class LocalSearchEngine {
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers,
+            TuningObjective tuning_objective,
             bool mip_start = false
         ): memory_(memory),
            logger_(logger),
@@ -69,7 +72,8 @@ class LocalSearchEngine {
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
            nb_workers_(nb_workers),
-           mip_start_(mip_start)
+           mip_start_(mip_start),
+           tuning_objective_(tuning_objective)
         {}
 
         virtual ~LocalSearchEngine() = default;
@@ -114,8 +118,9 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             double cutoff_solver_time,
             int nb_workers,
             bool use_shared_cache,
+            TuningObjective tuning_objective,
             bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, mip_start),
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, tuning_objective, mip_start),
            use_shared_cache_(use_shared_cache)
         {}
 
@@ -158,8 +163,9 @@ class ParamILSEngine : public LocalSearchEngine {
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers,
+            TuningObjective tuning_objective,
             bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, mip_start)
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, tuning_objective, mip_start)
         {}
 
         std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override;
@@ -187,8 +193,9 @@ class RandomLocalSearch : public LocalSearchEngine {
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers,
+            TuningObjective tuning_objective,
             bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, mip_start)
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, tuning_objective, mip_start)
         {}
 
         std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override {
@@ -209,6 +216,7 @@ class Exploration {
         double cutoff_solver_time_;
         int nb_workers_;
         bool use_shared_cache_;
+        TuningObjective tuning_objective_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -229,7 +237,8 @@ class Exploration {
             int nb_threads_solver,
             double cutoff_solver_time,
             int nb_workers,
-            bool use_shared_cache
+            bool use_shared_cache,
+            TuningObjective tuning_objective
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -240,7 +249,8 @@ class Exploration {
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
            nb_workers_(nb_workers),
-           use_shared_cache_(use_shared_cache)
+           use_shared_cache_(use_shared_cache),
+           tuning_objective_(tuning_objective)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {
@@ -260,18 +270,20 @@ class LocalSearchWorker {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         bool use_shared_cache_;
+        TuningObjective tuning_objective_;
         
     public:
-        LocalSearchWorker(int worker_id, int iteration, bool mip_start = false, bool use_shared_cache = false): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), use_shared_cache_(use_shared_cache) {}
+        LocalSearchWorker(int worker_id, int iteration, TuningObjective tuning_objective, bool mip_start = false, bool use_shared_cache = false): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), use_shared_cache_(use_shared_cache), tuning_objective_(tuning_objective) {}
 
         LocalSearchWorker(
             int worker_id,
             int iteration,
             int nb_threads_solver,
             double cutoff_solver_time,
+            TuningObjective tuning_objective,
             bool mip_start = false,
             bool use_shared_cache = false
-        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), use_shared_cache_(use_shared_cache)
+        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), use_shared_cache_(use_shared_cache), tuning_objective_(tuning_objective)
         {}
 
         virtual ~LocalSearchWorker() = default;
@@ -291,9 +303,10 @@ class ParamILSWorker : public LocalSearchWorker {
         ParamILSWorker(
             int worker_id,
             int iteration,
+            TuningObjective tuning_objective,
             bool mip_start = false,
             bool use_shared_cache = false
-        ): LocalSearchWorker(worker_id, iteration, mip_start, use_shared_cache)
+        ): LocalSearchWorker(worker_id, iteration, tuning_objective, mip_start, use_shared_cache)
         {}
 
         void run() override {
@@ -320,9 +333,10 @@ class IteratedLocalSearchWorker : public LocalSearchWorker {
             double cutoff_solver_time,
             std::string instance_file,
             std::string solver_log_file,
+            TuningObjective tuning_objective,
             bool use_shared_cache,
             bool mip_start = false
-        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, mip_start, use_shared_cache), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
+        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, tuning_objective, mip_start, use_shared_cache), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
         {}
 
         void run() override {
