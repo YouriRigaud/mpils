@@ -672,6 +672,7 @@ void IteratedLocalSearchEngine::writeILSSearchSpaceFile() {
     logger_.info("Writing ILS search space file...");
 
     std::filesystem::create_directories(ils_working_dir_ + "search_space/");
+    std::filesystem::create_directories(ils_working_dir_ + "local_results/");
     search_space_file_ = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
 
     std::ofstream myfile(search_space_file_);
@@ -970,6 +971,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     const auto local_results = ils.getEvaluationsWithConfigurations();
     // Write all the local results to a file that will be read by the master process to sync with global memory
     std::string local_results_file = ils_working_dir_ + "local_results/local_results_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
+    std::filesystem::create_directories(ils_working_dir_ + "local_results/");
     std::ofstream myfile(local_results_file);
     if (!myfile.is_open()) {
         worker_logger.info("Error opening local results file for writing: ", local_results_file);
