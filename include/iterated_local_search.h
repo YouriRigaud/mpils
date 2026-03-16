@@ -40,6 +40,11 @@ class LocalSearchMemory {
             configurations_[record.configuration_id] = config;
         }
 
+        void seedCachedEvaluation(const Configuration& config, const EvaluationRecord& record) {
+            cache_[record.configuration_id] = record;
+            configurations_[record.configuration_id] = config;
+        }
+
         void addSharedEvaluation(const Configuration& config, const EvaluationRecord& record) {
             cache_[record.configuration_id] = record;
             configurations_[record.configuration_id] = config;

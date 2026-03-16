@@ -657,10 +657,25 @@ void IteratedLocalSearch::injectInitialConfigurationIfAlreadyEvaluated_() {
     }
 
     const double objective_value = search_space_.getInitialConfigurationObjective().value();
-    EvaluationRecord initial_record = createEvaluationRecord_(current_configuration_, objective_value);
-    memory_.addEvaluation(current_configuration_, initial_record);
+    EvaluationRecord initial_record{};
+    initial_record.evaluation_id = 0;
+    initial_record.objective_value = objective_value;
+    initial_record.upper_bound = std::nullopt;
+    initial_record.lower_bound = std::nullopt;
+    initial_record.time_evaluated = GlobalTimer::elapsedSeconds();
+    initial_record.configuration_id = current_configuration_.getConfigurationId();
+    initial_record.mip_start_used = current_configuration_.useMipStart();
+    initial_record.used_mip_start_id = std::nullopt;
+    initial_record.mip_start_source_evaluation_id = std::nullopt;
+    initial_record.produced_mip_start = false;
+    initial_record.produced_mip_start_id = std::nullopt;
+    initial_record.worker_id = -1;
+    initial_record.iteration = static_cast<int>(current_iteration_);
+    initial_record.phase = -1;
 
-    logger_.info("Injected initial configuration into local search cache with objective value: ", objective_value);
+    memory_.seedCachedEvaluation(current_configuration_, initial_record);
+
+    logger_.info("Seeded initial configuration into local search cache with known objective value: ", objective_value);
     updateStopConditionFromObjective_(objective_value);
 }
 
