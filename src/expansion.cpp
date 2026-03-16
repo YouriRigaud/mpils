@@ -161,6 +161,7 @@ void Expansion::addToEvaluateParameters(
     options.lower_bound = lower_bound;
     options.time_evaluated = evaluated_time;
     options.worker_id = worker_id;
+    options.iteration = iteration_;
     options.phase = 1; // Phase 1 for expansion
 
     EvaluationId eval_id = memory_.recordEvaluation(config, options);
