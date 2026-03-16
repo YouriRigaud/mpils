@@ -14,6 +14,7 @@
 #define CONFIGURATION_H
 
 #include "parameter_space.h"
+#include "filesystem_utils.h"
 
 #include <map>
 #include <string>
@@ -89,6 +90,7 @@ class Configuration {
         }
 
         void generateConfigFile(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write configuration: " + filename);

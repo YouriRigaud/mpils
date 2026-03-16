@@ -4,6 +4,7 @@
 // License: GNU GPLv3
 
 #include "../include/solver.h"
+#include "../include/filesystem_utils.h"
 
 #include <ilcplex/ilocplex.h>
 
@@ -19,6 +20,7 @@ void CPLEXSolver::solve() {
         IloCplex cplex(model);
         
         // Set log file
+        ensureParentDirectoryForFile(log_file_);
         std::ofstream logStream(log_file_, std::ios::app);
         
         logStream << "\n===== New CPLEX run =====\n";
@@ -80,6 +82,7 @@ void CPLEXSolver::solve() {
 
         // write mip start file
         if (!produce_mip_start_file_.empty()) {
+            ensureParentDirectoryForFile(produce_mip_start_file_);
             cplex.writeMIPStarts(produce_mip_start_file_.c_str());
             logger_.info("Writing MIP start file: " + produce_mip_start_file_);
         }

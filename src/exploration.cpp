@@ -7,6 +7,7 @@
 #include "../include/tuner.h"
 #include "../include/globaltimer.h"
 #include "../include/solver.h"
+#include "../include/filesystem_utils.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -283,6 +284,7 @@ void ParamILSEngine::writeParamILSParameterFiles() {
         std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
 
         // open parameter file
+        ensureParentDirectoryForFile(parameter_file_path);
         std::ofstream myfile;
         myfile.open(parameter_file_path);
         if (!myfile.is_open()) {
@@ -311,7 +313,12 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
        
         std::string tuning_obj = "qual";
+        const std::string paramils_outdir =
+            param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) +
+            "_worker_" + std::to_string(i);
 
+        ensureParentDirectoryForFile(scenario_file_path);
+        ensureDirectoryExists(paramils_outdir);
         std::ofstream myfile;
         myfile.open(scenario_file_path);
         myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb" << std::endl;
@@ -324,7 +331,7 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         myfile << "wallclock-limit = " << cutoff_solver_time_*max_evaluations_ << std::endl;
         myfile << "logfile = " << solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
         myfile << "paramfile = " << parameter_file_path << std::endl;
-        myfile << "outdir = " + param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
+        myfile << "outdir = " << paramils_outdir << std::endl;
         myfile << "instance_file = " << param_ils_instance_file_ << std::endl;
         myfile << "test_instance_file = " << param_ils_instance_file_ << std::endl;
         myfile.close();
@@ -682,10 +689,11 @@ void IteratedLocalSearchEngine::writeILSInfoToFile(std::ofstream& myfile) {
 void IteratedLocalSearchEngine::writeILSSearchSpaceFile() {
     logger_.info("Writing ILS search space file...");
 
-    std::filesystem::create_directories(ils_working_dir_ + "search_space/");
-    std::filesystem::create_directories(ils_working_dir_ + "local_results/");
+    ensureDirectoryExists(ils_working_dir_ + "search_space/");
+    ensureDirectoryExists(ils_working_dir_ + "local_results/");
     search_space_file_ = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
 
+    ensureParentDirectoryForFile(search_space_file_);
     std::ofstream myfile(search_space_file_);
     if (!myfile.is_open()) {
         throw std::runtime_error("Error opening ILS search space file for writing: " + search_space_file_);
@@ -993,7 +1001,8 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     const auto local_results = ils.getEvaluationsWithConfigurations();
     // Write all the local results to a file that will be read by the master process to sync with global memory
     std::string local_results_file = ils_working_dir_ + "local_results/local_results_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
-    std::filesystem::create_directories(ils_working_dir_ + "local_results/");
+    ensureDirectoryExists(ils_working_dir_ + "local_results/");
+    ensureParentDirectoryForFile(local_results_file);
     std::ofstream myfile(local_results_file);
     if (!myfile.is_open()) {
         worker_logger.info("Error opening local results file for writing: ", local_results_file);

@@ -5,6 +5,7 @@
 
 #include "../include/pruning.h"
 #include "../include/learner.h"
+#include "../include/filesystem_utils.h"
 
 #include <fstream>
 #include <sstream>
@@ -25,6 +26,7 @@ void Pruning::run() {
 void Pruning::writeLearnerFile(const std::string& learner_file) {
     // Implementation to write learner file for pruning phase
     logger_.info("Writing learner file for pruning phase: ", learner_file);
+    ensureParentDirectoryForFile(learner_file);
     std::ofstream file(learner_file);
     if (!file.is_open()) {
         logger_.info("Could not open learner file for writing: ", learner_file);

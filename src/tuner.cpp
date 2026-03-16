@@ -4,6 +4,7 @@
 // License: GNU GPLv3
 
 #include "../include/tuner.h"
+#include "../include/filesystem_utils.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -81,6 +82,23 @@ std::vector<Parameter> Tuner::getParameters() {
     return initial_params;
 }
 
+void Tuner::createWorkingDirectories() {
+    ensureDirectoryExists(tuner_dir_);
+    ensureDirectoryExists(tuner_dir_ + "solver/");
+    ensureDirectoryExists(tuner_dir_ + "expansion/");
+    ensureDirectoryExists(tuner_dir_ + "config_for_mip_start/");
+    ensureDirectoryExists(tuner_dir_ + "mip_start/");
+    ensureDirectoryExists(tuner_dir_ + "iterated_local_search/");
+    ensureDirectoryExists(tuner_dir_ + "iterated_local_search/search_space/");
+    ensureDirectoryExists(tuner_dir_ + "iterated_local_search/local_results/");
+    ensureDirectoryExists(tuner_dir_ + "param_ils/");
+    ensureDirectoryExists(tuner_dir_ + "param_ils/parameter/");
+    ensureDirectoryExists(tuner_dir_ + "param_ils/scenario/");
+    ensureDirectoryExists(tuner_dir_ + "pruning/");
+    ensureDirectoryExists(tuner_dir_ + "pruning/input/");
+    ensureDirectoryExists(tuner_dir_ + "pruning/output/");
+}
+
 void Tuner::setAllParametersFlags() {
     int index = 1;
     for (auto& param : parameter_space_.getParameters()) {
@@ -115,6 +133,7 @@ void Tuner::setDefaultConfiguration() {
 void Tuner::writeParametersIdToFile(const Configuration& config, const std::string& filename) {
     logger_.info("Writing parameter IDs of configuration to file: ", filename);
 
+    ensureParentDirectoryForFile(filename);
     std::ofstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Could not open file to write parameters ID: " + filename);
@@ -132,6 +151,7 @@ void Tuner::writeParametersIdToFile(const Configuration& config, const std::stri
 
 void Tuner::setup() {
     logger_.info("Seting up the MPILS tuner");
+    createWorkingDirectories();
     setAllParametersFlags();
 
     logger_.debug("Tuned Parameters:");

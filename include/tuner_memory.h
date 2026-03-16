@@ -16,6 +16,7 @@
 #define TUNER_MEMORY_H
 
 #include "configuration.h"
+#include "filesystem_utils.h"
 #include "parameter_space.h"
 #include "logger.h"
 #include "globaltimer.h"
@@ -253,6 +254,7 @@ class TunerMemory {
         }
 
         void exportEvaluationLogCSV(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write evaluation log: " + filename);
@@ -282,6 +284,7 @@ class TunerMemory {
         }
 
         void exportUniqueConfigsCSV(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write unique configurations: " + filename);
@@ -305,6 +308,7 @@ class TunerMemory {
         }
 
         void exportUniqueMipStartsCSV(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write unique MIP starts: " + filename);

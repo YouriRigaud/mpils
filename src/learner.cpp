@@ -1,4 +1,5 @@
 #include "../include/learner.h"
+#include "../include/filesystem_utils.h"
 
 #include <cassert>
 #include <iostream>
@@ -386,6 +387,7 @@ void Learner::generate_lhs_samples(size_t n_samples) {
 void Learner::generate_prm_file(const arma::rowvec& config,
                       const std::vector<std::string>& parameter_names,
                       const std::string& prm_filename) {
+   ensureParentDirectoryForFile(prm_filename);
    std::ofstream prm_file(prm_filename, std::ios::trunc);
    if (!prm_file.is_open()) {
        throw std::runtime_error("Failed to open prm file for writing.");
@@ -952,7 +954,9 @@ void Learner::select_significant_coefficients( double significance_threshold, co
  * @note If the file cannot be opened, an error is printed and the function returns.
  */
 void Learner::save_results(const std::string& tablepath, const std::string& filename, const std::vector<std::vector<std::string>>& results, const std::string& basePath) {
-    std::ofstream outfile(basePath + tablepath + filename);
+    const std::string output_path = basePath + tablepath + filename;
+    ensureParentDirectoryForFile(output_path);
+    std::ofstream outfile(output_path);
     if (!outfile) {
         std::cerr << "Error opening file for writing.\n";
         return;

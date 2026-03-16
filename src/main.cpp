@@ -7,6 +7,7 @@
 #include "../include/tuner_memory.h"
 #include "../include/globaltimer.h"
 #include "../include/tuning_objective.h"
+#include "../include/filesystem_utils.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -64,6 +65,7 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
 }
 
 void writeParamILSInstanceFile(const std::string& filepath, const std::string& instance_file) {
+    ensureParentDirectoryForFile(filepath);
     std::ofstream myfile;
     myfile.open(filepath);
     myfile << instance_file << std::endl;
@@ -82,6 +84,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
 
     std::string log_file_path = options.tuner_dir + "tuner.log";
+    ensureParentDirectoryForFile(log_file_path);
     std::ofstream log_file(log_file_path);
     Tuner tuner(
         Verbosity::Debug,

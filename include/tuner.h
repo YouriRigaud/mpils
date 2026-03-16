@@ -49,6 +49,8 @@ class Tuner {
         void setAllParametersFlags();
         /** @brief Set the default configuration in tuner memory based on default parameter values */
         void setDefaultConfiguration();
+        /** @brief Create the working directories needed for a fresh tuner run */
+        void createWorkingDirectories();
 
         bool stopConditionMet(); // Check if stopping condition is met
 
