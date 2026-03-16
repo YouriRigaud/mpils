@@ -106,7 +106,7 @@ class Logger {
          */
         template<typename... Args>
         void warn(Args&&... args) const {
-            if (level_ == Verbosity::Normal)
+            if (level_ >= Verbosity::Normal)
                 print("[WARN]:", std::forward<Args>(args)...);
         }
 };

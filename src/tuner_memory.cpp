@@ -31,6 +31,8 @@ EvaluationRecord TunerMemory::createEvaluationRecord_(const RecordEvaluationOpti
     if (record.objective_value < 0) {
         logger_.warn("Creating an evaluation record with negative objective value: ", record.objective_value, ". ConfidId: ", record.configuration_id, " This should not happen, check the solver logs for potential errors.");
     }
+    record.upper_bound = options.upper_bound;
+    record.lower_bound = options.lower_bound;
 
     // Compute the time evaluated (in seconds since tuning started)
     if (options.time_evaluated >= 0) {

@@ -265,9 +265,13 @@ class IteratedLocalSearch {
         EvaluationRecord getOrEvaluate_(const Configuration& config);
 
         EvaluationRecord runSolverAndCreateRecord_(const Configuration& config);
-        double runSolverAndGetObjective_(const Configuration& config);
 
-        EvaluationRecord createEvaluationRecord_(const Configuration& config, double objective_value);
+        EvaluationRecord createEvaluationRecord_(
+            const Configuration& config,
+            double objective_value,
+            std::optional<double> upper_bound = std::nullopt,
+            std::optional<double> lower_bound = std::nullopt
+        );
         EvaluationRecord createSharedEvaluationRecord_(const Configuration& config, double objective_value);
 
         std::vector<Configuration> generateNeighbors_(const Configuration& config) const;

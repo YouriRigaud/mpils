@@ -52,6 +52,8 @@ struct ConfigurationStats {
 struct EvaluationRecord {
     EvaluationId evaluation_id;
     double objective_value;
+    std::optional<double> upper_bound; ///< Solver upper bound recorded for this evaluation, if available
+    std::optional<double> lower_bound; ///< Solver lower bound recorded for this evaluation, if available
     int time_evaluated;
     ConfigurationId configuration_id;
 
@@ -78,6 +80,8 @@ struct MipStartRecord {
 
 struct RecordEvaluationOptions {
     double objective_value = -1.0;    /// Objective value obtained from the evaluation. If not evaluated, can be set to -1.0 or any negative value.
+    std::optional<double> upper_bound = std::nullopt; /// Solver upper bound obtained from the evaluation, if available.
+    std::optional<double> lower_bound = std::nullopt; /// Solver lower bound obtained from the evaluation, if available.
     int time_evaluated = -1;    /// Time when the configuration was evaluated (in seconds since tuning started).
     int worker_id = -1;         /// ID of the worker that performed the evaluation (for logging purposes).
     int iteration = -1;         /// Iteration number during which the evaluation was performed (for logging purposes).
@@ -244,12 +248,14 @@ class TunerMemory {
                 throw std::runtime_error("Could not open file to write evaluation log: " + filename);
             }
             // Write header
-            file << "EvalID,TimeEvaluated,ObjectiveValue,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
+            file << "EvalID,TimeEvaluated,ObjectiveValue,UpperBound,LowerBound,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
             // Write records
             for (const auto& record : evaluations_) {
                 file << record.evaluation_id << ","
                      << record.time_evaluated << ","
                      << record.objective_value << ","
+                     << (record.upper_bound.has_value() ? std::to_string(record.upper_bound.value()) : "") << ","
+                     << (record.lower_bound.has_value() ? std::to_string(record.lower_bound.value()) : "") << ","
                      << record.configuration_id << ",";
                 if (record.mip_start_used) {
                     file << (record.used_mip_start_id.has_value() ? std::to_string(record.used_mip_start_id.value()) : "null");

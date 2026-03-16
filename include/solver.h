@@ -8,6 +8,7 @@
 
 #include "logger.h"
 
+#include <optional>
 #include <string>
 
 class Solver {
@@ -60,6 +61,8 @@ class Solver {
         virtual void solve() = 0; // Pure virtual function to solve the problem
 
         virtual double getObjectiveValue() = 0; // Pure virtual function to get the objective value
+        virtual std::optional<double> getUpperBound() = 0; // Pure virtual function to get the best solution value
+        virtual std::optional<double> getLowerBound() = 0; // Pure virtual function to get the best bound value
 };
 
 
@@ -67,6 +70,8 @@ class CPLEXSolver : public Solver {
     private:
         double gap_;
         double time_sec_;
+        std::optional<double> upper_bound_;
+        std::optional<double> lower_bound_;
 
     public:
         CPLEXSolver(
@@ -78,7 +83,9 @@ class CPLEXSolver : public Solver {
             double cutoff_solver_time        
         ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time),
            gap_(std::numeric_limits<double>::max()),
-           time_sec_(std::numeric_limits<double>::max())
+           time_sec_(std::numeric_limits<double>::max()),
+           upper_bound_(std::nullopt),
+           lower_bound_(std::nullopt)
         {}
 
         CPLEXSolver(
@@ -91,7 +98,9 @@ class CPLEXSolver : public Solver {
             std::string& mip_start_from_file
         ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, mip_start_from_file),
            gap_(std::numeric_limits<double>::max()),
-           time_sec_(std::numeric_limits<double>::max())
+           time_sec_(std::numeric_limits<double>::max()),
+           upper_bound_(std::nullopt),
+           lower_bound_(std::nullopt)
         {}
 
         CPLEXSolver(
@@ -105,11 +114,15 @@ class CPLEXSolver : public Solver {
             std::string& produce_mip_start_file
         ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, mip_start_from_file, produce_mip_start_file),
            gap_(std::numeric_limits<double>::max()),
-           time_sec_(std::numeric_limits<double>::max())
+           time_sec_(std::numeric_limits<double>::max()),
+           upper_bound_(std::nullopt),
+           lower_bound_(std::nullopt)
         {}
 
         void solve() override;
         double getObjectiveValue() override;
+        std::optional<double> getUpperBound() override;
+        std::optional<double> getLowerBound() override;
 };
 
 

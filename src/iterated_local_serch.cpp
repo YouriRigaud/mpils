@@ -774,11 +774,6 @@ std::string IteratedLocalSearch::buildLogFilePath_(const Configuration& config) 
 }
 
 EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configuration& config) {
-    const double objective_value = runSolverAndGetObjective_(config);
-    return createEvaluationRecord_(config, objective_value);
-}
-
-double IteratedLocalSearch::runSolverAndGetObjective_(const Configuration& config) {
     std::filesystem::create_directories(options_.working_directory);
 
     const std::string config_file_path = buildConfigFilePath_(config);
@@ -789,6 +784,10 @@ double IteratedLocalSearch::runSolverAndGetObjective_(const Configuration& confi
 
     logger_.info("Starting CPLEX solver on instance: ", options_.instance_file,
                  " with config: ", config_file_path);
+
+    double objective_value = std::numeric_limits<double>::max();
+    std::optional<double> upper_bound = std::nullopt;
+    std::optional<double> lower_bound = std::nullopt;
 
     if (config.useMipStart() && options_.mip_start_file.has_value()) {
         std::string mip_start_file = options_.mip_start_file.value();
@@ -802,7 +801,9 @@ double IteratedLocalSearch::runSolverAndGetObjective_(const Configuration& confi
             mip_start_file
         );
         solver.solve();
-        return solver.getObjectiveValue();
+        objective_value = solver.getObjectiveValue();
+        upper_bound = solver.getUpperBound();
+        lower_bound = solver.getLowerBound();
     } else {
         CPLEXSolver solver(
             logger_,
@@ -813,14 +814,25 @@ double IteratedLocalSearch::runSolverAndGetObjective_(const Configuration& confi
             options_.cutoff_solver_time
         );
         solver.solve();
-        return solver.getObjectiveValue();
+        objective_value = solver.getObjectiveValue();
+        upper_bound = solver.getUpperBound();
+        lower_bound = solver.getLowerBound();
     }
+
+    return createEvaluationRecord_(config, objective_value, upper_bound, lower_bound);
 }
 
-EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(const Configuration& config, double objective_value) {
+EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
+    const Configuration& config,
+    double objective_value,
+    std::optional<double> upper_bound,
+    std::optional<double> lower_bound
+) {
     EvaluationRecord record;
     record.evaluation_id = static_cast<EvaluationId>(next_evaluation_id_++);
     record.objective_value = objective_value;
+    record.upper_bound = upper_bound;
+    record.lower_bound = lower_bound;
     record.time_evaluated = GlobalTimer::elapsedSeconds();
     record.configuration_id = config.getConfigurationId();
 
@@ -842,6 +854,8 @@ EvaluationRecord IteratedLocalSearch::createSharedEvaluationRecord_(const Config
     EvaluationRecord record;
     record.evaluation_id = 0;
     record.objective_value = objective_value;
+    record.upper_bound = std::nullopt;
+    record.lower_bound = std::nullopt;
     record.time_evaluated = GlobalTimer::elapsedSeconds();
     record.configuration_id = config.getConfigurationId();
 

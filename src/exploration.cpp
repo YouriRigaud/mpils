@@ -406,6 +406,8 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
         }
         options.produced_mip_start = false; // Exploration phase does not produce MIP starts
         options.objective_value = obj;
+        options.upper_bound = std::nullopt; // ParamILS results are reconstructed from logs, so bounds are not available here
+        options.lower_bound = std::nullopt;
         options.time_evaluated = config_elapsed_time;
         options.worker_id = worker_id;
         options.phase = 0; // Phase 0 for exploration
@@ -526,6 +528,8 @@ void LocalSearchEngine::setMipStartFile() {
     RecordEvaluationOptions options;
     options.mip_start_used = false; // This evaluation is not using a mip start, it is producing one
     options.objective_value = objective_value;
+    options.upper_bound = solver.getUpperBound();
+    options.lower_bound = solver.getLowerBound();
     options.time_evaluated = evaluated_time;
     options.worker_id = 0;
     options.phase = 0; // Phase 0 for exploration
@@ -707,6 +711,8 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
 
         RecordEvaluationOptions options;
         options.objective_value = local_record.objective_value;
+        options.upper_bound = local_record.upper_bound;
+        options.lower_bound = local_record.lower_bound;
         options.time_evaluated = local_record.time_evaluated;
         options.worker_id = 0;
         options.iteration = iteration_;
@@ -813,6 +819,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
     bool in_configuration = false;
     std::map<std::string, Value> config_map;
     double objective_value = -1.0;
+    std::optional<double> upper_bound = std::nullopt;
+    std::optional<double> lower_bound = std::nullopt;
     int time_evaluated = -1;
     bool mip_start_used = false;
     std::optional<MipStartId> used_mip_start_id = std::nullopt;
@@ -827,6 +835,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             in_configuration = true;
             config_map.clear();
             objective_value = -1.0;
+            upper_bound = std::nullopt;
+            lower_bound = std::nullopt;
             time_evaluated = -1;
             mip_start_used = false;
             used_mip_start_id = std::nullopt;
@@ -842,6 +852,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             EvaluationRecord record{};
             record.evaluation_id = 0;
             record.objective_value = objective_value;
+            record.upper_bound = upper_bound;
+            record.lower_bound = lower_bound;
             record.time_evaluated = time_evaluated;
             record.configuration_id = 0;
             record.mip_start_used = mip_start_used;
@@ -868,6 +880,10 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
 
         if (key == "ObjectiveValue") {
             objective_value = std::stod(value);
+        } else if (key == "UpperBound") {
+            upper_bound = std::stod(value);
+        } else if (key == "LowerBound") {
+            lower_bound = std::stod(value);
         } else if (key == "TimeEvaluated") {
             time_evaluated = std::stoi(value);
         } else if (key == "MipStartUsed") {
@@ -968,6 +984,12 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
             myfile << param_pair.first << "=" << param_pair.second.getString() << std::endl;
         }
         myfile << "ObjectiveValue=" << record.objective_value << std::endl;
+        if (record.upper_bound.has_value()) {
+            myfile << "UpperBound=" << record.upper_bound.value() << std::endl;
+        }
+        if (record.lower_bound.has_value()) {
+            myfile << "LowerBound=" << record.lower_bound.value() << std::endl;
+        }
         myfile << "TimeEvaluated=" << record.time_evaluated << std::endl;
         myfile << "MipStartUsed=" << record.mip_start_used << std::endl;
         if (record.mip_start_used) {

@@ -11,6 +11,8 @@
 void CPLEXSolver::solve() {
     logger_.info("Starting CPLEX solver on instance: " + instance_file_ + " with config: " + config_file_path_);
     IloEnv env;
+    upper_bound_ = std::nullopt;
+    lower_bound_ = std::nullopt;
     try {
         IloModel model(env);
         IloCplex cplex(model);
@@ -49,9 +51,29 @@ void CPLEXSolver::solve() {
         // change number of floating point precision to 1e-2
         gap_ = std::round(gap_ * 100.0) / 100.0;
         time_sec_ = cplex.getTime();
+        if (cplex.isPrimalFeasible()) {
+            upper_bound_ = cplex.getObjValue();
+        }
+        lower_bound_ = cplex.getBestObjValue();
+
+        const std::string upper_bound_text = upper_bound_.has_value() ? std::to_string(upper_bound_.value()) : "null";
+        const std::string lower_bound_text = lower_bound_.has_value() ? std::to_string(lower_bound_.value()) : "null";
+
+        logger_.info("CPLEX results. Objective: ", gap_, ", upper bound: ", upper_bound_text, ", lower bound: ", lower_bound_text);
+        if (upper_bound_.has_value() && lower_bound_.has_value() && upper_bound_.value() < lower_bound_.value()) {
+            logger_.warn("Inconsistent solver bounds for config ", config_file_path_,
+                         ": upper bound ", upper_bound_.value(),
+                         " is smaller than lower bound ", lower_bound_.value(), ".");
+        }
         
         // Log the gap in the cplex log file
         logStream << "Gap: " << gap_ << "%\n";
+        if (upper_bound_.has_value()) {
+            logStream << "Upper bound: " << upper_bound_.value() << "\n";
+        }
+        if (lower_bound_.has_value()) {
+            logStream << "Lower bound: " << lower_bound_.value() << "\n";
+        }
         logStream << "End of CPLEX run. Time: " << time_sec_ << " seconds\n";
         logStream.close();
 
@@ -71,4 +93,12 @@ void CPLEXSolver::solve() {
 
 double CPLEXSolver::getObjectiveValue() {
     return gap_; // Return gap as objective value
+}
+
+std::optional<double> CPLEXSolver::getUpperBound() {
+    return upper_bound_;
+}
+
+std::optional<double> CPLEXSolver::getLowerBound() {
+    return lower_bound_;
 }

@@ -131,7 +131,16 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
     return configuration_files_outputs;
 }
 
-void Expansion::addToEvaluateParameters(Parameter& param, const Configuration& config, double objective_value, int evaluated_time, int worker_id, std::vector<EvaluateParameterOutput>& evaluation_outputs) {
+void Expansion::addToEvaluateParameters(
+    Parameter& param,
+    const Configuration& config,
+    double objective_value,
+    std::optional<double> upper_bound,
+    std::optional<double> lower_bound,
+    int evaluated_time,
+    int worker_id,
+    std::vector<EvaluateParameterOutput>& evaluation_outputs
+) {
     // Find or create EvaluateParameterOutput for the parameter
     auto it = std::find_if(evaluation_outputs.begin(), evaluation_outputs.end(),
                            [&param](const EvaluateParameterOutput& epo) { return &epo.parameter == &param; });
@@ -146,6 +155,8 @@ void Expansion::addToEvaluateParameters(Parameter& param, const Configuration& c
     options.produced_mip_start = false; // Expansion phase does not produce MIP starts
     
     options.objective_value = objective_value;
+    options.upper_bound = upper_bound;
+    options.lower_bound = lower_bound;
     options.time_evaluated = evaluated_time;
     options.worker_id = worker_id;
     options.phase = 1; // Phase 1 for expansion
@@ -207,10 +218,12 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 
         solver.solve();
         double objective_value = solver.getObjectiveValue();
+        std::optional<double> upper_bound = solver.getUpperBound();
+        std::optional<double> lower_bound = solver.getLowerBound();
         int evaluated_time = GlobalTimer::elapsedSeconds();
 
         const auto& create_output = configuration_files_outputs[config_id];
-        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluated_time, 0, evaluation_outputs);
+        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, upper_bound, lower_bound, evaluated_time, 0, evaluation_outputs);
     }
 #ifdef USE_MPI
     // Receive results from workers
@@ -221,13 +234,34 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         for (int i = 0; i < num_results; ++i) {
             int config_id;
             double objective_value;
+            int has_upper_bound;
+            double upper_bound_value = 0.0;
+            int has_lower_bound;
+            double lower_bound_value = 0.0;
             int evaluated_time;
             MPI_Recv(&config_id, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
             MPI_Recv(&objective_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
+            MPI_Recv(&has_upper_bound, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
+            if (has_upper_bound != 0) {
+                MPI_Recv(&upper_bound_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
+            }
+            MPI_Recv(&has_lower_bound, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
+            if (has_lower_bound != 0) {
+                MPI_Recv(&lower_bound_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
+            }
             MPI_Recv(&evaluated_time, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
 
             const auto& create_output = configuration_files_outputs[config_id];
-            addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, evaluated_time, worker_id, evaluation_outputs);
+            addToEvaluateParameters(
+                create_output.parameter,
+                create_output.configuration,
+                objective_value,
+                has_upper_bound != 0 ? std::optional<double>(upper_bound_value) : std::nullopt,
+                has_lower_bound != 0 ? std::optional<double>(lower_bound_value) : std::nullopt,
+                evaluated_time,
+                worker_id,
+                evaluation_outputs
+            );
         }
     }
 #endif
@@ -324,9 +358,11 @@ void ExpansionWorker::evaluateConfigurations() {
 
         solver.solve();
         double objective_value = solver.getObjectiveValue();
+        std::optional<double> upper_bound = solver.getUpperBound();
+        std::optional<double> lower_bound = solver.getLowerBound();
         int elapsed_time = GlobalTimer::elapsedSeconds();
 
-        evaluation_results_.emplace_back(config_id, std::make_pair(objective_value, elapsed_time));
+        evaluation_results_.push_back({config_id, objective_value, elapsed_time, upper_bound, lower_bound});
     }
 }
 
@@ -335,12 +371,24 @@ void ExpansionWorker::sendConfigsResultToMaster() {
     int num_results = evaluation_results_.size();
     MPI_Send(&num_results, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
 
-    for (const auto& result_pair : evaluation_results_) {
-        int config_id = result_pair.first;
-        double objective_value = result_pair.second.first;
-        int evaluated_time = result_pair.second.second;
+    for (const auto& result : evaluation_results_) {
+        int config_id = result.config_id;
+        double objective_value = result.objective_value;
+        int has_upper_bound = result.upper_bound.has_value() ? 1 : 0;
+        double upper_bound_value = result.upper_bound.value_or(0.0);
+        int has_lower_bound = result.lower_bound.has_value() ? 1 : 0;
+        double lower_bound_value = result.lower_bound.value_or(0.0);
+        int evaluated_time = result.evaluated_time;
         MPI_Send(&config_id, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&objective_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(&has_upper_bound, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        if (has_upper_bound != 0) {
+            MPI_Send(&upper_bound_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
+        MPI_Send(&has_lower_bound, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        if (has_lower_bound != 0) {
+            MPI_Send(&lower_bound_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
         MPI_Send(&evaluated_time, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
     }
 }
