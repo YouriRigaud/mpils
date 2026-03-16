@@ -98,6 +98,7 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
         std::optional<double> getKnownInitialObjective_() const;
 
         std::vector<EvaluationRecord> syncILSResultsToGlobalMemory_(
+            int worker_id,
             const std::vector<std::pair<Configuration, EvaluationRecord>>& local_results
         );
 

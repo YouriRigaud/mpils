@@ -700,6 +700,7 @@ void IteratedLocalSearchEngine::writeILSSearchSpaceFile() {
 }
 
 std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalMemory_(
+    int worker_id,
     const std::vector<std::pair<Configuration, EvaluationRecord>>& local_results
 ) {
     std::vector<EvaluationRecord> synced_results;
@@ -725,7 +726,7 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
         options.upper_bound = local_record.upper_bound;
         options.lower_bound = local_record.lower_bound;
         options.time_evaluated = local_record.time_evaluated;
-        options.worker_id = 0;
+        options.worker_id = worker_id;
         options.iteration = iteration_;
         options.phase = 0;
 
@@ -792,7 +793,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
 
     // This accessor must exist in IteratedLocalSearch.
     const auto local_results = ils_->getEvaluationsWithConfigurations();
-    std::vector<EvaluationRecord> synced_results = syncILSResultsToGlobalMemory_(local_results);
+    std::vector<EvaluationRecord> synced_results = syncILSResultsToGlobalMemory_(0, local_results);
     exploration_results.push_back(std::make_pair(0, synced_results));
 
 #ifdef USE_MPI
@@ -802,7 +803,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     // Read the results of the other workers and sync them to global memory
     for (int worker_id = 1; worker_id < nb_workers_; ++worker_id) {
         std::vector<std::pair<Configuration, EvaluationRecord>> worker_local_results = readLocalResultsFromFile_(worker_id);
-        std::vector<EvaluationRecord> worker_synced_results = syncILSResultsToGlobalMemory_(worker_local_results);
+        std::vector<EvaluationRecord> worker_synced_results = syncILSResultsToGlobalMemory_(worker_id, worker_local_results);
         exploration_results.push_back(std::make_pair(worker_id, worker_synced_results));
     }    
 
