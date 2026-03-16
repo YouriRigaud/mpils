@@ -1,5 +1,6 @@
 #include "../include/learner.h"
 #include "../include/filesystem_utils.h"
+#include "../include/working_directory.h"
 
 #include <cassert>
 #include <iostream>
@@ -145,7 +146,7 @@ void Learner::remove_duplicates() {
  */
 void Learner::call_learning_model(const std::string& filepath, const std::string& tablepath, Options options) {
     // Step 1: Read parameter definitions (names & IDs), and read dataset and preprocess (duplicates, constant columns)
-    read_parameter_file("tuner_working_dir/parameter_ids.txt");
+    read_parameter_file(buildTunerPath("parameter_ids.txt"));
     std::cout << "read_parameter_file done" << std::endl;
 
     read_data_file(filepath);
@@ -195,8 +196,8 @@ void Learner::call_learning_model(const std::string& filepath, const std::string
     std::cout << "select_significant_coefficients done" << std::endl;
 
     // Step 7: Save results (individual and interaction terms) for external analysis
-    save_results(tablepath, "1Option.txt", one_hot_values, "tuner_working_dir/pruning/output/");
-    save_results(tablepath, "2Option.txt", interaction_pairs, "tuner_working_dir/pruning/output/");
+    save_results(tablepath, "1Option.txt", one_hot_values, buildTunerPath("pruning/output/"));
+    save_results(tablepath, "2Option.txt", interaction_pairs, buildTunerPath("pruning/output/"));
 }
 
 /**

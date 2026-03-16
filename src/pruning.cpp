@@ -6,6 +6,7 @@
 #include "../include/pruning.h"
 #include "../include/learner.h"
 #include "../include/filesystem_utils.h"
+#include "../include/working_directory.h"
 
 #include <fstream>
 #include <sstream>
@@ -48,7 +49,7 @@ void Pruning::writeLearnerFile(const std::string& learner_file) {
 }
 
 std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbiddenTuples() {
-    const std::string learner_file = "tuner_working_dir/pruning/input/learner_file_" + std::to_string(iteration_) + ".txt";
+    const std::string learner_file = buildTunerPath("pruning/input/learner_file_" + std::to_string(iteration_) + ".txt");
     writeLearnerFile(learner_file);
 
     logger_.info("Extracting forbidden tuples from memory...");
@@ -68,8 +69,8 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
 
     // Output files
     std::vector<std::string> output_files = {
-        "tuner_working_dir/pruning/output/" + table_name + "1Option.txt",
-        "tuner_working_dir/pruning/output/" + table_name + "2Option.txt"
+        buildTunerPath("pruning/output/" + table_name + "1Option.txt"),
+        buildTunerPath("pruning/output/" + table_name + "2Option.txt")
     };
 
     for (const auto& file_path : output_files) {

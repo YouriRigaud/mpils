@@ -8,6 +8,7 @@
 #include "../include/globaltimer.h"
 #include "../include/tuning_objective.h"
 #include "../include/filesystem_utils.h"
+#include "../include/working_directory.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -56,6 +57,12 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("Missing value for --tuning-objective");
             }
             options.tuning_objective = parseTuningObjective(argv[++i]);
+        } else if (std::strcmp(argv[i], "--working-dir") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --working-dir");
+            }
+            options.tuner_dir = normalizeTunerWorkingDirectory(argv[++i]);
+            options.solver_log_file = options.tuner_dir + "solver/cplex.log";
         } else if (argv[i][0] != '-') {
             options.instance_file = std::string(argv[i]);
         } else {
@@ -139,6 +146,7 @@ int main(int argc, char** argv) {
 
     TunerOptions options;
     getTunerOptions(argc, argv, options);
+    setTunerWorkingDirectory(options.tuner_dir);
 
 #ifdef USE_MPI
     MPI_Init(&argc, &argv);

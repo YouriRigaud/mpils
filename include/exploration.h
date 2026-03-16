@@ -12,6 +12,7 @@
 #include "parameter_space.h"
 #include "configuration.h"
 #include "iterated_local_search.h"
+#include "working_directory.h"
 
 #include <string>
 
@@ -86,7 +87,7 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
         std::unique_ptr<IteratedLocalSearch> ils_;
         bool use_shared_cache_;
 
-        const std::string ils_working_dir_ = "tuner_working_dir/iterated_local_search/";
+        const std::string ils_working_dir_ = buildTunerPath("iterated_local_search/");
         std::string search_space_file_;
 
         void writeILSSearchSpaceFile();
@@ -132,7 +133,7 @@ class ParamILSEngine : public LocalSearchEngine {
     private:
         const std::string param_ils_dir_ = "param_ils/";
         const std::string param_ils_executable_ = "param_ils_2_3_run.rb";
-        const std::string param_ils_working_dir_ = "tuner_working_dir/param_ils/";
+        const std::string param_ils_working_dir_ = buildTunerPath("param_ils/");
         std::string parameter_file_;
         std::string scenario_file_;
 
@@ -296,7 +297,7 @@ class ParamILSWorker : public LocalSearchWorker {
     private:
         const std::string param_ils_dir_ = "param_ils/";
         const std::string param_ils_executable_ = "param_ils_2_3_run.rb";
-        const std::string param_ils_working_dir_ = "tuner_working_dir/param_ils/";
+        const std::string param_ils_working_dir_ = buildTunerPath("param_ils/");
 
         void callParamILS();
     
@@ -317,7 +318,7 @@ class ParamILSWorker : public LocalSearchWorker {
 
 class IteratedLocalSearchWorker : public LocalSearchWorker {
     private:
-        const std::string ils_working_dir_ = "tuner_working_dir/iterated_local_search/";
+        const std::string ils_working_dir_ = buildTunerPath("iterated_local_search/");
         int max_evaluations_;
         std::string instance_file_;
         std::string solver_log_file_;

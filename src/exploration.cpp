@@ -527,8 +527,8 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
 
 void LocalSearchEngine::setMipStartFile() {
     Configuration best_config = memory_.getBestConfiguration() != nullptr ? *memory_.getBestConfiguration() : memory_.getDefaultConfiguration();
-    mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
-    std::string config_path = "tuner_working_dir/config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm";
+    mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
+    std::string config_path = buildTunerPath("config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm");
     best_config.generateConfigFile(config_path);
     std::string mip_void = ""; // We do not want to use a mip start file for the solver, we just want to generate it with cplex, so we give it an empty file that does not exist, so it does not use it but it generates it
     // Call cplex on the best configuration found so far to generate the mip start file
@@ -968,7 +968,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     Logger worker_logger(Verbosity::Debug, std::cout);
     std::string search_space_file = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
     if (mip_start_ && worker_id_ == 1 && iteration_ > 1) {
-        mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
+        mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
         worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
     } else {
         worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file.");

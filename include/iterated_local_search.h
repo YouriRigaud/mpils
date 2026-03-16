@@ -7,6 +7,7 @@
 #define ITERATED_LOCAL_SEARCH_H
 
 #include "tuning_objective.h"
+#include "working_directory.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "configuration.h"
@@ -222,7 +223,7 @@ class IteratedLocalSearch {
             std::string search_space_file;
             std::string instance_file;
             std::string log_file_solver;
-            std::string working_directory = "tuner_working_dir/local_search";
+            std::string working_directory = buildTunerPath("local_search");
 
             unsigned int random_seed = 0;
             std::size_t evaluation_budget = 20;
