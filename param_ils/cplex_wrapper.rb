@@ -2,16 +2,42 @@ require_relative "param_reader.rb"
 #=== This wrapper reads in some parameters, sets up a call to CPLEX, performs it, reads the result, and outputs it in a nice format for ParamILS.
 
 #=== Deal with inputs.
-if ARGV.length < 5
+solver_threads = nil
+work_dir = "tuner_working_dir"
+arg_index = 0
+
+while arg_index < ARGV.length
+	if ARGV[arg_index] == "--threads"
+		if arg_index + 1 >= ARGV.length
+			puts "Missing value for --threads"
+			exit -1
+		end
+		solver_threads = ARGV[arg_index + 1].to_i
+		arg_index += 2
+	elsif ARGV[arg_index] == "--work-dir"
+		if arg_index + 1 >= ARGV.length
+			puts "Missing value for --work-dir"
+			exit -1
+		end
+		work_dir = ARGV[arg_index + 1]
+		arg_index += 2
+	else
+		break
+	end
+end
+
+args = ARGV[arg_index..] || []
+
+if args.length < 5
 	puts "CPLEX wrapper is a wrapper around CPLEX, so it can be tuned with ParamILS."
-	puts "Usage: ruby cplex_wrapper.rb <instance_relname> <cutoff_time> <cutoff_length> <seed> <run_objective> <params to be passed on>."
+	puts "Usage: ruby cplex_wrapper.rb [--threads <n>] [--work-dir <dir>] <instance_relname> <cutoff_time> <cutoff_length> <seed> <run_objective> <params to be passed on>."
 	exit -1
 end
-instance_relname = ARGV[0]
-instance_specifics = ARGV[1] # ignored in all cases so far
-cutoff_time = ARGV[2].to_f
-cutoff_length = ARGV[3].to_i 
-seed = ARGV[4].to_i # ignored
+instance_relname = args[0]
+instance_specifics = args[1] # ignored in all cases so far
+cutoff_time = args[2].to_f
+cutoff_length = args[3].to_i 
+seed = args[4].to_i # ignored
 
 if cutoff_length > 2100000000
 	cutoff_length = 2100000000
@@ -35,8 +61,8 @@ mip_start = false
 
 param_lines = []
 i=5
-while i<ARGV.length-1
-	param = ARGV[i].sub(/^-/,"")
+while i<args.length-1
+	param = args[i].sub(/^-/,"")
 	#set_cmd = param.gsub(/_/," ")
 	set_cmd = param
 	#=== This parameter is present only when we tune on the lower bound
@@ -45,41 +71,42 @@ while i<ARGV.length-1
 		i+=2
 	elsif param == "process_mpi"
 		mpi_run = true
-		process_rank = ARGV[i+1]
+		process_rank = args[i+1]
 		i+=2
 	elsif param == "mip_start"
 		mip_start = true
-		mip_start_file = ARGV[i+1]
+		mip_start_file = args[i+1]
 		i+=2
 	elsif param == "iteration"
-		iteration = ARGV[i+1]
+		iteration = args[i+1]
 		i+=2
 	#=== Exception for parameter that has a tuple as value
 	elsif param == "simplex_perturbation"
-		param_lines << "set #{set_cmd} #{ARGV[i+1]} #{ARGV[i+2]}"
+		param_lines << "set #{set_cmd} #{args[i+1]} #{args[i+2]}"
 		i+=3
 	else
-		param_lines << "set #{set_cmd} #{ARGV[i+1]}"
+		param_lines << "set #{set_cmd} #{args[i+1]}"
 		i+=2
 	end
 end
 
 
-logfile = "tuner_working_dir/solver/cplex.log_iteration_paramils_#{iteration}_worker_0"
-outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-#{datetime2}"
-mip_startfile = "tuner_working_dir/solver/mipstarts/mipstart-#{datetime2}.mst"
+solver_dir = File.join(work_dir, "solver")
+logfile = File.join(solver_dir, "cplex.log_iteration_paramils_#{iteration}_worker_0")
+outfile = File.join(solver_dir, "outfiles", "cplex-out-tmp-#{datetime2}")
+mip_startfile = File.join(solver_dir, "mipstarts", "mipstart-#{datetime2}.mst")
 
 if mpi_run
-	logfile = "tuner_working_dir/solver/cplex.log_iteration_paramils_#{iteration}_worker_#{process_rank}"
-	outfile = "tuner_working_dir/solver/outfiles/cplex-out-tmp-worker-#{process_rank}-#{datetime2}"
-	mip_startfile = "tuner_working_dir/solver/mipstarts/mipstart-worker-#{process_rank}-#{datetime2}.mst"
+	logfile = File.join(solver_dir, "cplex.log_iteration_paramils_#{iteration}_worker_#{process_rank}")
+	outfile = File.join(solver_dir, "outfiles", "cplex-out-tmp-worker-#{process_rank}-#{datetime2}")
+	mip_startfile = File.join(solver_dir, "mipstarts", "mipstart-worker-#{process_rank}-#{datetime2}.mst")
 end
 
 #=== Change to however you call CPLEX locally.
 #=== This is a File.popen construct, because I need to pipe in all the parameters after calling CPLEX.
 #=== (you can also do this as a double File.popen construct: call ruby on the command line to call CPLEX and output something; that something can be read in with File.popen again - this is what I used to do in the commented part below. But now I'm just going via the logfile.)
-#cmd = "ruby -e 'File.popen(\"/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call own PC
-cmd = "ruby -e 'File.popen(\"/home/ibm/cplex-studio/22.1.1/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call gerad
+cmd = "ruby -e 'File.popen(\"/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call own PC
+#cmd = "ruby -e 'File.popen(\"/home/ibm/cplex-studio/22.1.1/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call gerad
 #cmd = "ruby -e 'File.popen(\"/home/yorig/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex\",\"w\"){|file| " # Call alliance
 
 cplex_lines = []
@@ -88,6 +115,10 @@ cplex_lines << "read #{instance_relname}"
 #cplex_lines << "set clocktype 2"
 #cplex_lines << "set mip limits nodes #{cutoff_length}"
 cplex_lines << "set timelimit #{cutoff_time}"
+
+if solver_threads && solver_threads > 0
+	cplex_lines << "set threads #{solver_threads}"
+end
 
 if mip_start
 	cplex_lines << "read #{mip_start_file}"

@@ -18,6 +18,19 @@
 #include <fstream>
 #include <filesystem>
 #include <optional>
+#include <random>
+
+namespace {
+
+std::uint32_t computeInitialConfigurationSeed(std::uint32_t base_seed, int iteration) {
+    return base_seed + 100000u + static_cast<std::uint32_t>(iteration - 1);
+}
+
+std::string buildParamILSCommand(const std::string& executable, std::uint32_t num_run, const std::string& scenario_file_path) {
+    return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path;
+}
+
+} // namespace
 
 void Exploration::updateTunedParameters() {
     for (auto& param : parameter_space_.getParameters()) {
@@ -41,6 +54,7 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
         initial_configurations.push_back(memory_.getDefaultConfiguration()); // Return default configuration if no best found
     }
     //Todo: implementation is for test only, after use random configurations or other strategies
+    std::mt19937 rng(computeInitialConfigurationSeed(base_seed_, iteration_));
     while (initial_configurations.size() < static_cast<size_t>(nb_workers_)) {
         // add a random configuration, random only on parameter that are tuned, default value for others
         std::map<std::string, Value> config_map;
@@ -48,7 +62,8 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
             if (param.isTuned()) {
                 // select a random value from the parameter's possible values
                 const auto& values = param.getValues();
-                size_t random_index = rand() % values.size();
+                std::uniform_int_distribution<std::size_t> dist(0, values.size() - 1);
+                std::size_t random_index = dist(rng);
                 config_map.insert_or_assign(param.getName(), values[random_index]);
             } else {
                 config_map.insert_or_assign(param.getName(), param.getDefaultValue());
@@ -97,23 +112,47 @@ void Exploration::run() {
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
     logger_.info("ILS shared cache is ", use_shared_cache_ ? "enabled" : "disabled", " for this exploration phase.");
+    logger_.info("Local search backend for this exploration phase: ", localSearchBackendToString(local_search_backend_));
 
-    setEngine(std::make_unique<IteratedLocalSearchEngine>(
-        memory_,
-        logger_,
-        initial_configurations,
-        parameter_space_,
-        instance_file_,
-        param_ils_instance_file_,
-        solver_log_file_,
-        nb_evaluations,
-        iteration_,
-        nb_threads_solver_,
-        cutoff_solver_time_,
-        nb_workers_,
-        use_shared_cache_,
-        tuning_objective_
-    ));
+    switch (local_search_backend_) {
+        case LocalSearchBackend::IteratedLocalSearch:
+            setEngine(std::make_unique<IteratedLocalSearchEngine>(
+                memory_,
+                logger_,
+                initial_configurations,
+                parameter_space_,
+                instance_file_,
+                param_ils_instance_file_,
+                solver_log_file_,
+                nb_evaluations,
+                iteration_,
+                nb_threads_solver_,
+                cutoff_solver_time_,
+                nb_workers_,
+                use_shared_cache_,
+                base_seed_,
+                tuning_objective_
+            ));
+            break;
+        case LocalSearchBackend::ParamILS:
+            setEngine(std::make_unique<ParamILSEngine>(
+                memory_,
+                logger_,
+                initial_configurations,
+                parameter_space_,
+                instance_file_,
+                param_ils_instance_file_,
+                solver_log_file_,
+                nb_evaluations,
+                iteration_,
+                nb_threads_solver_,
+                cutoff_solver_time_,
+                nb_workers_,
+                base_seed_,
+                tuning_objective_
+            ));
+            break;
+    }
 
     if (!engine_) {
         logger_.info("No local search engine set for exploration.");
@@ -131,6 +170,7 @@ void Exploration::run() {
             cutoff_solver_time_,
             nb_workers_,
             use_shared_cache_,
+            base_seed_,
             tuning_objective_
         ));
         logger_.info("Default IteratedLocalSearchEngine has been set.");
@@ -140,7 +180,6 @@ void Exploration::run() {
 
     nb_evaluations = 0;
     for (const auto& evaluation_pair : evaluations) {
-        int worker_id = evaluation_pair.first;
         const std::vector<EvaluationRecord>& worker_evaluations = evaluation_pair.second;
         nb_evaluations += worker_evaluations.size();
     }
@@ -313,6 +352,8 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
        
         std::string tuning_obj = "qual";
+        const std::string solver_working_dir =
+            std::filesystem::path(solver_log_file_).parent_path().parent_path().string();
         const std::string paramils_outdir =
             param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) +
             "_worker_" + std::to_string(i);
@@ -321,7 +362,7 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         ensureDirectoryExists(paramils_outdir);
         std::ofstream myfile;
         myfile.open(scenario_file_path);
-        myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb" << std::endl;
+        myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb --threads " + std::to_string(nb_threads_solver_) + " --work-dir " + solver_working_dir << std::endl;
         myfile << "execdir = ." << std::endl;
         myfile << "deterministic = 1" << std::endl;
         myfile << "run_obj = " << tuning_obj << std::endl;
@@ -346,7 +387,8 @@ void ParamILSEngine::callParamILS() {
     local_search_start_time_ = GlobalTimer::elapsedSeconds();
 
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(0) + ".txt";
-    std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
+    const std::uint32_t num_run = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers_, 0);
+    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
     int ret = system(command.c_str());
     if (ret != 0) {
         logger_.info("Error calling ParamILS executable.");
@@ -784,7 +826,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.instance_file = instance_file_;
     ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_0";
     ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_) + "_worker_0";
-    ils_options.random_seed = static_cast<unsigned int>(iteration_ * nb_workers_ + 0);
+    ils_options.random_seed = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers_, 0);
     ils_options.evaluation_budget = max_evaluations_;
     ils_options.perturbation_strength = 3;
     ils_options.random_initial_samples = 0;
@@ -935,8 +977,15 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
 
 #ifdef USE_MPI
 void ParamILSWorker::callParamILS() {
+#ifdef USE_MPI
+    int nb_workers = 1;
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
+#else
+    const int nb_workers = 1;
+#endif
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
-    std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
+    const std::uint32_t num_run = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers, worker_id_);
+    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
     int ret = system(command.c_str());
     if (ret != 0) {
         std::cout << "Error calling ParamILS executable for worker " << worker_id_ << " at iteration " << iteration_ << std::endl;
@@ -979,7 +1028,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.instance_file = instance_file_;
     ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
     ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
-    ils_options.random_seed = static_cast<unsigned int>(iteration_ * nb_workers + worker_id_);
+    ils_options.random_seed = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers, worker_id_);
     ils_options.evaluation_budget = max_evaluations_;
     ils_options.perturbation_strength = 3;
     ils_options.random_initial_samples = 0;

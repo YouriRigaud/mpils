@@ -7,6 +7,7 @@
 #define TUNER_H
 
 #include "tuning_objective.h"
+#include "local_search_backend.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "exploration.h"
@@ -17,6 +18,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <cstdint>
 
 class Tuner {
     private:
@@ -34,6 +36,9 @@ class Tuner {
         const double cutoff_solver_time_;          ///< Cutoff time for each solver run
         const int nb_workers_;                     ///< Number of worker processes for parallel execution
         const bool use_shared_cache_;              ///< Whether ILS workers should share cached objectives
+        const bool exploration_only_;             ///< Whether to stop after one exploration phase
+        const LocalSearchBackend local_search_backend_; ///< Local search backend to use during exploration
+        const std::uint32_t base_seed_;           ///< Base seed for exploration-local-search reproducibility
         const TuningObjective tuning_objective_; ///< Objective used by direct CPLEX paths
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
@@ -75,6 +80,9 @@ class Tuner {
             double cutoff_solver_time,
             int nb_workers,
             bool use_shared_cache,
+            bool exploration_only,
+            LocalSearchBackend local_search_backend,
+            std::uint32_t base_seed,
             TuningObjective tuning_objective
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
@@ -87,10 +95,13 @@ class Tuner {
             cutoff_solver_time_(cutoff_solver_time),
             nb_workers_(nb_workers),
             use_shared_cache_(use_shared_cache),
+            exploration_only_(exploration_only),
+            local_search_backend_(local_search_backend),
+            base_seed_(base_seed),
             tuning_objective_(tuning_objective),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, tuning_objective_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
@@ -138,6 +149,8 @@ class Worker {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         bool use_shared_cache_;
+        LocalSearchBackend local_search_backend_;
+        std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
         int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
 
@@ -163,7 +176,7 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, TuningObjective tuning_objective)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
@@ -172,6 +185,8 @@ class Worker {
               nb_threads_solver_(nb_threads_solver),
               cutoff_solver_time_(cutoff_solver_time),
               use_shared_cache_(use_shared_cache),
+              local_search_backend_(local_search_backend),
+              base_seed_(base_seed),
               tuning_objective_(tuning_objective)
         {}
 

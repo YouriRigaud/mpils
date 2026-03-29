@@ -85,6 +85,8 @@ std::vector<Parameter> Tuner::getParameters() {
 void Tuner::createWorkingDirectories() {
     ensureDirectoryExists(tuner_dir_);
     ensureDirectoryExists(tuner_dir_ + "solver/");
+    ensureDirectoryExists(tuner_dir_ + "solver/outfiles/");
+    ensureDirectoryExists(tuner_dir_ + "solver/mipstarts/");
     ensureDirectoryExists(tuner_dir_ + "expansion/");
     ensureDirectoryExists(tuner_dir_ + "config_for_mip_start/");
     ensureDirectoryExists(tuner_dir_ + "mip_start/");
@@ -209,6 +211,14 @@ void Tuner::run() {
 
         // Exploration phase
         exploration_.run();
+
+        if (exploration_only_) {
+            logger_.info("Stopping after exploration phase because exploration-only mode is enabled.");
+#ifdef USE_MPI
+            sendStopOrderToWorkers();
+#endif
+            break;
+        }
         
         // Check stopping condition
         if (stopConditionMet()) {
@@ -281,10 +291,33 @@ void Worker::receiveOrderFromMaster() {
 
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
-    if (worker_id_ == 1) {
-        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, tuning_objective_, use_shared_cache_, true)); // mip start for worker 1
-    } else {
-        setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(worker_id_, iteration_, nb_evaluations_, nb_threads_solver_, cutoff_solver_time_, instance_file_, solver_log_file_, tuning_objective_, use_shared_cache_, false)); // no mip start for other workers
+    const bool use_mip_start = worker_id_ == 1;
+    switch (local_search_backend_) {
+        case LocalSearchBackend::IteratedLocalSearch:
+            setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(
+                worker_id_,
+                iteration_,
+                nb_evaluations_,
+                nb_threads_solver_,
+                cutoff_solver_time_,
+                instance_file_,
+                solver_log_file_,
+                tuning_objective_,
+                base_seed_,
+                use_shared_cache_,
+                use_mip_start
+            ));
+            break;
+        case LocalSearchBackend::ParamILS:
+            setLocalSearchWorker(std::make_unique<ParamILSWorker>(
+                worker_id_,
+                iteration_,
+                tuning_objective_,
+                base_seed_,
+                use_mip_start,
+                use_shared_cache_
+            ));
+            break;
     }
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding

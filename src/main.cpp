@@ -15,6 +15,7 @@
 #endif
 
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <iostream>
 #include <string>
@@ -33,6 +34,9 @@ struct TunerOptions {
     double cutoff_solver_time = 15.0;
     int nb_workers = 1;
     bool use_shared_cache = false;
+    bool exploration_only = false;
+    LocalSearchBackend local_search_backend = LocalSearchBackend::IteratedLocalSearch;
+    std::uint32_t seed = 0;
     TuningObjective tuning_objective = TuningObjective::Gap;
 };
 
@@ -42,6 +46,22 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             options.use_shared_cache = true;
         } else if (std::strcmp(argv[i], "--no-shared-cache") == 0) {
             options.use_shared_cache = false;
+        } else if (std::strcmp(argv[i], "--exploration-only") == 0) {
+            options.exploration_only = true;
+        } else if (std::strcmp(argv[i], "--local-search-engine") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --local-search-engine");
+            }
+            options.local_search_backend = parseLocalSearchBackend(argv[++i]);
+        } else if (std::strcmp(argv[i], "--seed") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --seed");
+            }
+            const unsigned long long parsed_seed = std::stoull(argv[++i]);
+            if (parsed_seed > std::numeric_limits<std::uint32_t>::max()) {
+                throw std::runtime_error("Seed value is too large for --seed");
+            }
+            options.seed = static_cast<std::uint32_t>(parsed_seed);
         } else if (std::strcmp(argv[i], "--solver-threads") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --solver-threads");
@@ -83,6 +103,9 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
     std::cout << "ILS shared cache: " << (options.use_shared_cache ? "enabled" : "disabled") << std::endl;
+    std::cout << "Local search engine: " << localSearchBackendToString(options.local_search_backend) << std::endl;
+    std::cout << "Exploration only: " << (options.exploration_only ? "enabled" : "disabled") << std::endl;
+    std::cout << "Seed: " << options.seed << std::endl;
     std::cout << "Tuning objective: " << tuningObjectiveToString(options.tuning_objective) << std::endl;
 
     // init a clock to measure tuning time
@@ -107,6 +130,9 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.cutoff_solver_time,
         options.nb_workers,
         options.use_shared_cache,
+        options.exploration_only,
+        options.local_search_backend,
+        options.seed,
         options.tuning_objective
     );
     
@@ -136,7 +162,7 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.tuning_objective);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
