@@ -19,6 +19,7 @@
 #include <string>
 #include <fstream>
 #include <cstdint>
+#include <optional>
 
 class Tuner {
     private:
@@ -83,7 +84,8 @@ class Tuner {
             bool exploration_only,
             LocalSearchBackend local_search_backend,
             std::uint32_t base_seed,
-            TuningObjective tuning_objective
+            TuningObjective tuning_objective,
+            std::optional<int> number_of_evaluations = std::nullopt
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -101,7 +103,7 @@ class Tuner {
             tuning_objective_(tuning_objective),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}

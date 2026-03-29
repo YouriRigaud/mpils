@@ -17,6 +17,7 @@
 
 #include <string>
 #include <cstdint>
+#include <optional>
 
 class LocalSearchEngine {
     protected:
@@ -229,6 +230,7 @@ class Exploration {
         LocalSearchBackend local_search_backend_;
         std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
+        std::optional<int> number_of_evaluations_override_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -252,7 +254,8 @@ class Exploration {
             bool use_shared_cache,
             LocalSearchBackend local_search_backend,
             std::uint32_t base_seed,
-            TuningObjective tuning_objective
+            TuningObjective tuning_objective,
+            std::optional<int> number_of_evaluations_override = std::nullopt
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -266,7 +269,8 @@ class Exploration {
            use_shared_cache_(use_shared_cache),
            local_search_backend_(local_search_backend),
            base_seed_(base_seed),
-           tuning_objective_(tuning_objective)
+           tuning_objective_(tuning_objective),
+           number_of_evaluations_override_(number_of_evaluations_override)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {

@@ -174,6 +174,7 @@ def build_command(
     solver_threads: int,
     tuning_objective: str,
     mpi_procs: int,
+    number_of_evaluations: int,
 ) -> list[str]:
     cmd: list[str] = []
     if mpi_procs > 1:
@@ -196,6 +197,8 @@ def build_command(
             str(solver_threads),
             "--tuning-objective",
             tuning_objective,
+            "--number-of-evaluations",
+            str(number_of_evaluations),
         ]
     )
     return cmd
@@ -211,6 +214,7 @@ def run_single(
     solver_threads: int,
     tuning_objective: str,
     mpi_procs: int,
+    number_of_evaluations: int,
 ) -> RunResult:
     run_dir = output_root / backend / f"seed_{seed}"
     work_dir = run_dir / "workdir"
@@ -228,6 +232,7 @@ def run_single(
         solver_threads=solver_threads,
         tuning_objective=tuning_objective,
         mpi_procs=mpi_procs,
+        number_of_evaluations=number_of_evaluations,
     )
 
     with launch_log.open("w", encoding="utf-8") as handle:
@@ -671,6 +676,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     solver_threads=args.solver_threads,
                     tuning_objective=args.tuning_objective,
                     mpi_procs=args.mpi_procs,
+                    number_of_evaluations=args.number_of_evaluations,
                 )
             )
 

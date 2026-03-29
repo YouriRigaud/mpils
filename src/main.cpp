@@ -20,6 +20,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <optional>
 
 // Use this struct to tune the options of the tuner
 struct TunerOptions {
@@ -38,6 +39,7 @@ struct TunerOptions {
     LocalSearchBackend local_search_backend = LocalSearchBackend::IteratedLocalSearch;
     std::uint32_t seed = 0;
     TuningObjective tuning_objective = TuningObjective::Gap;
+    std::optional<int> number_of_evaluations = std::nullopt;
 };
 
 void getTunerOptions(int argc, char** argv, TunerOptions& options) {
@@ -77,6 +79,15 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("Missing value for --tuning-objective");
             }
             options.tuning_objective = parseTuningObjective(argv[++i]);
+        } else if (std::strcmp(argv[i], "--number-of-evaluations") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --number-of-evaluations");
+            }
+            const int parsed_number_of_evaluations = std::stoi(argv[++i]);
+            if (parsed_number_of_evaluations <= 0) {
+                throw std::runtime_error("--number-of-evaluations must be greater than 0");
+            }
+            options.number_of_evaluations = parsed_number_of_evaluations;
         } else if (std::strcmp(argv[i], "--working-dir") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --working-dir");
@@ -107,6 +118,12 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Exploration only: " << (options.exploration_only ? "enabled" : "disabled") << std::endl;
     std::cout << "Seed: " << options.seed << std::endl;
     std::cout << "Tuning objective: " << tuningObjectiveToString(options.tuning_objective) << std::endl;
+    std::cout << "Number of evaluations: ";
+    if (options.number_of_evaluations.has_value()) {
+        std::cout << options.number_of_evaluations.value() << std::endl;
+    } else {
+        std::cout << "auto" << std::endl;
+    }
 
     // init a clock to measure tuning time
     GlobalTimer::start();
@@ -133,7 +150,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.exploration_only,
         options.local_search_backend,
         options.seed,
-        options.tuning_objective
+        options.tuning_objective,
+        options.number_of_evaluations
     );
     
     tuner.setup();

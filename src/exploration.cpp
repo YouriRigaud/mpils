@@ -101,12 +101,18 @@ int Exploration::selectNumberOfEvaluations() {
 
 void Exploration::run() {
     logger_.info("Starting exploration phase...");
-    int nb_evaluations = selectNumberOfEvaluations();
-    if (nb_evaluations > 30) {
-        nb_evaluations = 30;
-    }
-    if (nb_evaluations < 5) {
-        nb_evaluations = 5;
+    int nb_evaluations = 0;
+    if (number_of_evaluations_override_.has_value()) {
+        nb_evaluations = number_of_evaluations_override_.value();
+        logger_.info("Using explicit evaluation budget override: ", nb_evaluations);
+    } else {
+        nb_evaluations = selectNumberOfEvaluations();
+        if (nb_evaluations > 30) {
+            nb_evaluations = 30;
+        }
+        if (nb_evaluations < 5) {
+            nb_evaluations = 5;
+        }
     }
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
