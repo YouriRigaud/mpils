@@ -231,6 +231,7 @@ class Exploration {
         std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
         std::optional<int> number_of_evaluations_override_;
+        bool enable_mip_starts_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -255,7 +256,8 @@ class Exploration {
             LocalSearchBackend local_search_backend,
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
-            std::optional<int> number_of_evaluations_override = std::nullopt
+            std::optional<int> number_of_evaluations_override = std::nullopt,
+            bool enable_mip_starts = true
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -270,7 +272,8 @@ class Exploration {
            local_search_backend_(local_search_backend),
            base_seed_(base_seed),
            tuning_objective_(tuning_objective),
-           number_of_evaluations_override_(number_of_evaluations_override)
+           number_of_evaluations_override_(number_of_evaluations_override),
+           enable_mip_starts_(enable_mip_starts)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {

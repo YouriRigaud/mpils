@@ -185,7 +185,7 @@ void Tuner::setup() {
 }
 
 bool Tuner::stopConditionMet() {
-    if (iteration_ >= 15) {
+    if (iteration_ >= max_iterations_) {
         logger_.info("Stopping condition met: reached maximum iterations (", iteration_, ").");
         return true;
     }
@@ -291,7 +291,7 @@ void Worker::receiveOrderFromMaster() {
 
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
-    const bool use_mip_start = worker_id_ == 1;
+    const bool use_mip_start = enable_mip_starts_ && worker_id_ == 1;
     switch (local_search_backend_) {
         case LocalSearchBackend::IteratedLocalSearch:
             setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(

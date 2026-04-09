@@ -40,16 +40,73 @@ struct TunerOptions {
     std::uint32_t seed = 0;
     TuningObjective tuning_objective = TuningObjective::Gap;
     std::optional<int> number_of_evaluations = std::nullopt;
+    int max_iterations = 15;
+    bool enable_mip_starts = true;
 };
+
+void printHelp(const char* program_name) {
+    std::cout << "Usage: " << program_name << " [options] [instance_file]" << std::endl;
+    std::cout << std::endl;
+    std::cout << "Options:" << std::endl;
+    std::cout << "  --help                          Show this help message and exit" << std::endl;
+    std::cout << "  --working-dir PATH              Set the tuner working directory" << std::endl;
+    std::cout << "  --parameters-file PATH          Set the parameter definition file" << std::endl;
+    std::cout << "  --paramils-instance-file PATH   Set the ParamILS instance list file" << std::endl;
+    std::cout << "  --initial-selected-parameters N Set the number of initially selected parameters" << std::endl;
+    std::cout << "  --expansion-parameter-budget N  Set the number of residual parameters evaluated in expansion" << std::endl;
+    std::cout << "  --solver-threads N              Set the number of solver threads" << std::endl;
+    std::cout << "  --solver-time SECONDS           Set the cutoff time for each solver run" << std::endl;
+    std::cout << "  --local-search-engine NAME      Set the exploration backend (iterated_local_search or paramils)" << std::endl;
+    std::cout << "  --seed N                        Set the base random seed" << std::endl;
+    std::cout << "  --tuning-objective NAME         Set the tuning objective (gap or upper_bound)" << std::endl;
+    std::cout << "  --number-of-evaluations N       Override the exploration evaluation budget" << std::endl;
+    std::cout << "  --max-iterations N              Set the maximum number of tuner iterations" << std::endl;
+    std::cout << "  --shared-cache                  Enable shared cache for ILS workers" << std::endl;
+    std::cout << "  --no-shared-cache               Disable shared cache for ILS workers" << std::endl;
+    std::cout << "  --exploration-only              Stop after the exploration phase" << std::endl;
+    std::cout << "  --enable-mip-starts             Enable MIP starts during exploration when applicable" << std::endl;
+    std::cout << "  --disable-mip-starts            Disable MIP starts during exploration" << std::endl;
+    std::cout << std::endl;
+    std::cout << "If instance_file is provided as a positional argument, it overrides the default instance path." << std::endl;
+}
 
 void getTunerOptions(int argc, char** argv, TunerOptions& options) {
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--shared-cache") == 0) {
+        if (std::strcmp(argv[i], "--help") == 0) {
+            printHelp(argv[0]);
+            std::exit(0);
+        } else if (std::strcmp(argv[i], "--shared-cache") == 0) {
             options.use_shared_cache = true;
         } else if (std::strcmp(argv[i], "--no-shared-cache") == 0) {
             options.use_shared_cache = false;
         } else if (std::strcmp(argv[i], "--exploration-only") == 0) {
             options.exploration_only = true;
+        } else if (std::strcmp(argv[i], "--parameters-file") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --parameters-file");
+            }
+            options.parameters_file = argv[++i];
+        } else if (std::strcmp(argv[i], "--paramils-instance-file") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --paramils-instance-file");
+            }
+            options.param_ils_instance_file = argv[++i];
+        } else if (std::strcmp(argv[i], "--initial-selected-parameters") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --initial-selected-parameters");
+            }
+            options.nb_initial_selected_parameters = std::stoi(argv[++i]);
+            if (options.nb_initial_selected_parameters <= 0) {
+                throw std::runtime_error("--initial-selected-parameters must be greater than 0");
+            }
+        } else if (std::strcmp(argv[i], "--expansion-parameter-budget") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --expansion-parameter-budget");
+            }
+            options.nb_parameter_to_evaluate_expansion = std::stoi(argv[++i]);
+            if (options.nb_parameter_to_evaluate_expansion <= 0) {
+                throw std::runtime_error("--expansion-parameter-budget must be greater than 0");
+            }
         } else if (std::strcmp(argv[i], "--local-search-engine") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --local-search-engine");
@@ -88,6 +145,18 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("--number-of-evaluations must be greater than 0");
             }
             options.number_of_evaluations = parsed_number_of_evaluations;
+        } else if (std::strcmp(argv[i], "--max-iterations") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --max-iterations");
+            }
+            options.max_iterations = std::stoi(argv[++i]);
+            if (options.max_iterations <= 0) {
+                throw std::runtime_error("--max-iterations must be greater than 0");
+            }
+        } else if (std::strcmp(argv[i], "--enable-mip-starts") == 0) {
+            options.enable_mip_starts = true;
+        } else if (std::strcmp(argv[i], "--disable-mip-starts") == 0) {
+            options.enable_mip_starts = false;
         } else if (std::strcmp(argv[i], "--working-dir") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --working-dir");
@@ -118,6 +187,12 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Exploration only: " << (options.exploration_only ? "enabled" : "disabled") << std::endl;
     std::cout << "Seed: " << options.seed << std::endl;
     std::cout << "Tuning objective: " << tuningObjectiveToString(options.tuning_objective) << std::endl;
+    std::cout << "Parameters file: " << options.parameters_file << std::endl;
+    std::cout << "ParamILS instance file: " << options.param_ils_instance_file << std::endl;
+    std::cout << "Initial selected parameters: " << options.nb_initial_selected_parameters << std::endl;
+    std::cout << "Expansion parameter budget: " << options.nb_parameter_to_evaluate_expansion << std::endl;
+    std::cout << "Max iterations: " << options.max_iterations << std::endl;
+    std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
     std::cout << "Number of evaluations: ";
     if (options.number_of_evaluations.has_value()) {
         std::cout << options.number_of_evaluations.value() << std::endl;
@@ -151,7 +226,9 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.local_search_backend,
         options.seed,
         options.tuning_objective,
-        options.number_of_evaluations
+        options.number_of_evaluations,
+        options.max_iterations,
+        options.enable_mip_starts
     );
     
     tuner.setup();
@@ -180,7 +257,7 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }

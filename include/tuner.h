@@ -41,6 +41,8 @@ class Tuner {
         const LocalSearchBackend local_search_backend_; ///< Local search backend to use during exploration
         const std::uint32_t base_seed_;           ///< Base seed for exploration-local-search reproducibility
         const TuningObjective tuning_objective_; ///< Objective used by direct CPLEX paths
+        const int max_iterations_;               ///< Maximum number of tuner iterations
+        const bool enable_mip_starts_;           ///< Whether exploration can use MIP starts
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -85,7 +87,9 @@ class Tuner {
             LocalSearchBackend local_search_backend,
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
-            std::optional<int> number_of_evaluations = std::nullopt
+            std::optional<int> number_of_evaluations = std::nullopt,
+            int max_iterations = 15,
+            bool enable_mip_starts = true
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -101,9 +105,11 @@ class Tuner {
             local_search_backend_(local_search_backend),
             base_seed_(base_seed),
             tuning_objective_(tuning_objective),
+            max_iterations_(max_iterations),
+            enable_mip_starts_(enable_mip_starts),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
@@ -154,6 +160,7 @@ class Worker {
         LocalSearchBackend local_search_backend_;
         std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
+        bool enable_mip_starts_;
         int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
@@ -178,7 +185,7 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
@@ -189,7 +196,8 @@ class Worker {
               use_shared_cache_(use_shared_cache),
               local_search_backend_(local_search_backend),
               base_seed_(base_seed),
-              tuning_objective_(tuning_objective)
+              tuning_objective_(tuning_objective),
+              enable_mip_starts_(enable_mip_starts)
         {}
 
         void run(); // Run the worker process

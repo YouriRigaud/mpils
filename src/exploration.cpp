@@ -137,7 +137,8 @@ void Exploration::run() {
                 nb_workers_,
                 use_shared_cache_,
                 base_seed_,
-                tuning_objective_
+                tuning_objective_,
+                enable_mip_starts_
             ));
             break;
         case LocalSearchBackend::ParamILS:
@@ -155,7 +156,8 @@ void Exploration::run() {
                 cutoff_solver_time_,
                 nb_workers_,
                 base_seed_,
-                tuning_objective_
+                tuning_objective_,
+                enable_mip_starts_
             ));
             break;
     }
@@ -177,7 +179,8 @@ void Exploration::run() {
             nb_workers_,
             use_shared_cache_,
             base_seed_,
-            tuning_objective_
+            tuning_objective_,
+            enable_mip_starts_
         ));
         logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
@@ -198,7 +201,7 @@ void Exploration::run() {
 std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
-    if (iteration_ > 1 && nb_workers_ > 1) {
+    if (mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
         mip_start_ = true;
     } else {
         mip_start_ = false;
@@ -810,7 +813,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
 
     std::vector<std::pair<int, std::vector<EvaluationRecord>>> exploration_results;
 
-    if (iteration_ > 1 && nb_workers_ > 1) {
+    if (mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
         mip_start_ = true;
     } else {
         mip_start_ = false;
