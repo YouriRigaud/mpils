@@ -1,4 +1,6 @@
 #include "../include/learner.h"
+#include "../include/filesystem_utils.h"
+#include "../include/working_directory.h"
 
 #include <cassert>
 #include <iostream>
@@ -144,7 +146,7 @@ void Learner::remove_duplicates() {
  */
 void Learner::call_learning_model(const std::string& filepath, const std::string& tablepath, Options options) {
     // Step 1: Read parameter definitions (names & IDs), and read dataset and preprocess (duplicates, constant columns)
-    read_parameter_file("tuner_working_dir/parameter_ids.txt");
+    read_parameter_file(buildTunerPath("parameter_ids.txt"));
     std::cout << "read_parameter_file done" << std::endl;
 
     read_data_file(filepath);
@@ -194,8 +196,8 @@ void Learner::call_learning_model(const std::string& filepath, const std::string
     std::cout << "select_significant_coefficients done" << std::endl;
 
     // Step 7: Save results (individual and interaction terms) for external analysis
-    save_results(tablepath, "1Option.txt", one_hot_values, "tuner_working_dir/pruning/output/");
-    save_results(tablepath, "2Option.txt", interaction_pairs, "tuner_working_dir/pruning/output/");
+    save_results(tablepath, "1Option.txt", one_hot_values, buildTunerPath("pruning/output/"));
+    save_results(tablepath, "2Option.txt", interaction_pairs, buildTunerPath("pruning/output/"));
 }
 
 /**
@@ -386,6 +388,7 @@ void Learner::generate_lhs_samples(size_t n_samples) {
 void Learner::generate_prm_file(const arma::rowvec& config,
                       const std::vector<std::string>& parameter_names,
                       const std::string& prm_filename) {
+   ensureParentDirectoryForFile(prm_filename);
    std::ofstream prm_file(prm_filename, std::ios::trunc);
    if (!prm_file.is_open()) {
        throw std::runtime_error("Failed to open prm file for writing.");
@@ -952,7 +955,9 @@ void Learner::select_significant_coefficients( double significance_threshold, co
  * @note If the file cannot be opened, an error is printed and the function returns.
  */
 void Learner::save_results(const std::string& tablepath, const std::string& filename, const std::vector<std::vector<std::string>>& results, const std::string& basePath) {
-    std::ofstream outfile(basePath + tablepath + filename);
+    const std::string output_path = basePath + tablepath + filename;
+    ensureParentDirectoryForFile(output_path);
+    std::ofstream outfile(output_path);
     if (!outfile) {
         std::cerr << "Error opening file for writing.\n";
         return;

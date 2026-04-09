@@ -4,6 +4,7 @@
 // License: GNU GPLv3
 
 #include "../include/tuner.h"
+#include "../include/filesystem_utils.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -81,6 +82,25 @@ std::vector<Parameter> Tuner::getParameters() {
     return initial_params;
 }
 
+void Tuner::createWorkingDirectories() {
+    ensureDirectoryExists(tuner_dir_);
+    ensureDirectoryExists(tuner_dir_ + "solver/");
+    ensureDirectoryExists(tuner_dir_ + "solver/outfiles/");
+    ensureDirectoryExists(tuner_dir_ + "solver/mipstarts/");
+    ensureDirectoryExists(tuner_dir_ + "expansion/");
+    ensureDirectoryExists(tuner_dir_ + "config_for_mip_start/");
+    ensureDirectoryExists(tuner_dir_ + "mip_start/");
+    ensureDirectoryExists(tuner_dir_ + "iterated_local_search/");
+    ensureDirectoryExists(tuner_dir_ + "iterated_local_search/search_space/");
+    ensureDirectoryExists(tuner_dir_ + "iterated_local_search/local_results/");
+    ensureDirectoryExists(tuner_dir_ + "param_ils/");
+    ensureDirectoryExists(tuner_dir_ + "param_ils/parameter/");
+    ensureDirectoryExists(tuner_dir_ + "param_ils/scenario/");
+    ensureDirectoryExists(tuner_dir_ + "pruning/");
+    ensureDirectoryExists(tuner_dir_ + "pruning/input/");
+    ensureDirectoryExists(tuner_dir_ + "pruning/output/");
+}
+
 void Tuner::setAllParametersFlags() {
     int index = 1;
     for (auto& param : parameter_space_.getParameters()) {
@@ -115,6 +135,7 @@ void Tuner::setDefaultConfiguration() {
 void Tuner::writeParametersIdToFile(const Configuration& config, const std::string& filename) {
     logger_.info("Writing parameter IDs of configuration to file: ", filename);
 
+    ensureParentDirectoryForFile(filename);
     std::ofstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Could not open file to write parameters ID: " + filename);
@@ -132,6 +153,7 @@ void Tuner::writeParametersIdToFile(const Configuration& config, const std::stri
 
 void Tuner::setup() {
     logger_.info("Seting up the MPILS tuner");
+    createWorkingDirectories();
     setAllParametersFlags();
 
     logger_.debug("Tuned Parameters:");
@@ -173,8 +195,8 @@ bool Tuner::stopConditionMet() {
         return true;
     }
 
-    if (memory_.getBestObjective() <= 0.01) {
-        logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
+    if (memory_.hasEvaluationAtOrBelowGap(0.0)) {
+        logger_.info("Stopping condition met: satisfactory gap achieved.");
         return true;
     }
     
@@ -189,6 +211,14 @@ void Tuner::run() {
 
         // Exploration phase
         exploration_.run();
+
+        if (exploration_only_) {
+            logger_.info("Stopping after exploration phase because exploration-only mode is enabled.");
+#ifdef USE_MPI
+            sendStopOrderToWorkers();
+#endif
+            break;
+        }
         
         // Check stopping condition
         if (stopConditionMet()) {
@@ -202,8 +232,8 @@ void Tuner::run() {
         expansion_.run();
 
         // Check stopping condition
-        if (memory_.getBestObjective() <= 0.01) {
-            logger_.info("Stopping condition met: satisfactory objective value achieved (", memory_.getBestObjective(), ").");
+        if (memory_.hasEvaluationAtOrBelowGap(0.0)) {
+            logger_.info("Stopping condition met: satisfactory gap achieved.");
 #ifdef USE_MPI
             sendStopOrderToWorkers();
 #endif
@@ -253,15 +283,41 @@ void Worker::receiveOrderFromMaster() {
     MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
     worker_step_ = order.step;
     iteration_ = order.iteration;
+    if (worker_step_ == 1) {
+        nb_evaluations_ = order.nb_evaluations;
+    }
     std::cout << "Worker " << worker_id_ << " received order for step " << worker_step_ << "." << std::endl;
 }
 
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
-    if (worker_id_ == 1) {
-        setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_, true)); // mip start for worker 1
-    } else {
-        setLocalSearchWorker(std::make_unique<ParamILSWorker>(worker_id_, iteration_));
+    const bool use_mip_start = worker_id_ == 1;
+    switch (local_search_backend_) {
+        case LocalSearchBackend::IteratedLocalSearch:
+            setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(
+                worker_id_,
+                iteration_,
+                nb_evaluations_,
+                nb_threads_solver_,
+                cutoff_solver_time_,
+                instance_file_,
+                solver_log_file_,
+                tuning_objective_,
+                base_seed_,
+                use_shared_cache_,
+                use_mip_start
+            ));
+            break;
+        case LocalSearchBackend::ParamILS:
+            setLocalSearchWorker(std::make_unique<ParamILSWorker>(
+                worker_id_,
+                iteration_,
+                tuning_objective_,
+                base_seed_,
+                use_mip_start,
+                use_shared_cache_
+            ));
+            break;
     }
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
@@ -272,8 +328,9 @@ void Worker::runExplorationPhase() {
 void Worker::runExpansionPhase() {
     std::cout << "Worker " << worker_id_ << " running expansion phase for iteration " << iteration_ << "." << std::endl;
     std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    std::cout << "Worker " << worker_id_ << " will use solver log file: " << solver_log_file_worker << std::endl;
     // Implementation of expansion phase logic
-    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_));
+    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_, tuning_objective_));
     expansion_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state

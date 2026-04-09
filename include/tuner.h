@@ -6,6 +6,8 @@
 #ifndef TUNER_H
 #define TUNER_H
 
+#include "tuning_objective.h"
+#include "local_search_backend.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "exploration.h"
@@ -16,6 +18,8 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <cstdint>
+#include <optional>
 
 class Tuner {
     private:
@@ -32,6 +36,11 @@ class Tuner {
         const int nb_threads_solver_;              ///< Number of threads for the solver
         const double cutoff_solver_time_;          ///< Cutoff time for each solver run
         const int nb_workers_;                     ///< Number of worker processes for parallel execution
+        const bool use_shared_cache_;              ///< Whether ILS workers should share cached objectives
+        const bool exploration_only_;             ///< Whether to stop after one exploration phase
+        const LocalSearchBackend local_search_backend_; ///< Local search backend to use during exploration
+        const std::uint32_t base_seed_;           ///< Base seed for exploration-local-search reproducibility
+        const TuningObjective tuning_objective_; ///< Objective used by direct CPLEX paths
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -46,6 +55,8 @@ class Tuner {
         void setAllParametersFlags();
         /** @brief Set the default configuration in tuner memory based on default parameter values */
         void setDefaultConfiguration();
+        /** @brief Create the working directories needed for a fresh tuner run */
+        void createWorkingDirectories();
 
         bool stopConditionMet(); // Check if stopping condition is met
 
@@ -68,7 +79,13 @@ class Tuner {
             int nb_parameter_to_evaluate_expansion,
             int nb_threads_solver,
             double cutoff_solver_time,
-            int nb_workers
+            int nb_workers,
+            bool use_shared_cache,
+            bool exploration_only,
+            LocalSearchBackend local_search_backend,
+            std::uint32_t base_seed,
+            TuningObjective tuning_objective,
+            std::optional<int> number_of_evaluations = std::nullopt
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -79,10 +96,15 @@ class Tuner {
             nb_threads_solver_(nb_threads_solver),
             cutoff_solver_time_(cutoff_solver_time),
             nb_workers_(nb_workers),
+            use_shared_cache_(use_shared_cache),
+            exploration_only_(exploration_only),
+            local_search_backend_(local_search_backend),
+            base_seed_(base_seed),
+            tuning_objective_(tuning_objective),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_),
-            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations),
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 
@@ -116,6 +138,7 @@ class Tuner {
 struct WorkerOrder {
     int step;
     int iteration;
+    int nb_evaluations; // Number of evaluations to perform in the local search phase, relevant for step 1 (exploration)
 };
 
 class Worker {
@@ -127,6 +150,11 @@ class Worker {
         std::string solver_log_file_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        bool use_shared_cache_;
+        LocalSearchBackend local_search_backend_;
+        std::uint32_t base_seed_;
+        TuningObjective tuning_objective_;
+        int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
         std::unique_ptr<ExpansionWorker> expansion_worker_ = nullptr;
@@ -150,14 +178,18 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
               instance_file_(instance_file),
               solver_log_file_(solver_log_file),
               nb_threads_solver_(nb_threads_solver),
-              cutoff_solver_time_(cutoff_solver_time)
+              cutoff_solver_time_(cutoff_solver_time),
+              use_shared_cache_(use_shared_cache),
+              local_search_backend_(local_search_backend),
+              base_seed_(base_seed),
+              tuning_objective_(tuning_objective)
         {}
 
         void run(); // Run the worker process

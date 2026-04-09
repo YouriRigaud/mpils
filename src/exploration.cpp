@@ -7,6 +7,7 @@
 #include "../include/tuner.h"
 #include "../include/globaltimer.h"
 #include "../include/solver.h"
+#include "../include/filesystem_utils.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -16,6 +17,20 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include <optional>
+#include <random>
+
+namespace {
+
+std::uint32_t computeInitialConfigurationSeed(std::uint32_t base_seed, int iteration) {
+    return base_seed + 100000u + static_cast<std::uint32_t>(iteration - 1);
+}
+
+std::string buildParamILSCommand(const std::string& executable, std::uint32_t num_run, const std::string& scenario_file_path) {
+    return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path;
+}
+
+} // namespace
 
 void Exploration::updateTunedParameters() {
     for (auto& param : parameter_space_.getParameters()) {
@@ -39,6 +54,7 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
         initial_configurations.push_back(memory_.getDefaultConfiguration()); // Return default configuration if no best found
     }
     //Todo: implementation is for test only, after use random configurations or other strategies
+    std::mt19937 rng(computeInitialConfigurationSeed(base_seed_, iteration_));
     while (initial_configurations.size() < static_cast<size_t>(nb_workers_)) {
         // add a random configuration, random only on parameter that are tuned, default value for others
         std::map<std::string, Value> config_map;
@@ -46,7 +62,8 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
             if (param.isTuned()) {
                 // select a random value from the parameter's possible values
                 const auto& values = param.getValues();
-                size_t random_index = rand() % values.size();
+                std::uniform_int_distribution<std::size_t> dist(0, values.size() - 1);
+                std::size_t random_index = dist(rng);
                 config_map.insert_or_assign(param.getName(), values[random_index]);
             } else {
                 config_map.insert_or_assign(param.getName(), param.getDefaultValue());
@@ -84,30 +101,92 @@ int Exploration::selectNumberOfEvaluations() {
 
 void Exploration::run() {
     logger_.info("Starting exploration phase...");
-    int nb_evaluations = selectNumberOfEvaluations();
-    if (nb_evaluations > 30) {
-        nb_evaluations = 30;
+    int nb_evaluations = 0;
+    if (number_of_evaluations_override_.has_value()) {
+        nb_evaluations = number_of_evaluations_override_.value();
+        logger_.info("Using explicit evaluation budget override: ", nb_evaluations);
+    } else {
+        nb_evaluations = selectNumberOfEvaluations();
+        if (nb_evaluations > 30) {
+            nb_evaluations = 30;
+        }
+        if (nb_evaluations < 5) {
+            nb_evaluations = 5;
+        }
     }
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
+    logger_.info("ILS shared cache is ", use_shared_cache_ ? "enabled" : "disabled", " for this exploration phase.");
+    logger_.info("Local search backend for this exploration phase: ", localSearchBackendToString(local_search_backend_));
 
-    setEngine(std::make_unique<ParamILSEngine>(memory_, logger_, initial_configurations, parameter_space_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
-
+    switch (local_search_backend_) {
+        case LocalSearchBackend::IteratedLocalSearch:
+            setEngine(std::make_unique<IteratedLocalSearchEngine>(
+                memory_,
+                logger_,
+                initial_configurations,
+                parameter_space_,
+                instance_file_,
+                param_ils_instance_file_,
+                solver_log_file_,
+                nb_evaluations,
+                iteration_,
+                nb_threads_solver_,
+                cutoff_solver_time_,
+                nb_workers_,
+                use_shared_cache_,
+                base_seed_,
+                tuning_objective_
+            ));
+            break;
+        case LocalSearchBackend::ParamILS:
+            setEngine(std::make_unique<ParamILSEngine>(
+                memory_,
+                logger_,
+                initial_configurations,
+                parameter_space_,
+                instance_file_,
+                param_ils_instance_file_,
+                solver_log_file_,
+                nb_evaluations,
+                iteration_,
+                nb_threads_solver_,
+                cutoff_solver_time_,
+                nb_workers_,
+                base_seed_,
+                tuning_objective_
+            ));
+            break;
+    }
 
     if (!engine_) {
         logger_.info("No local search engine set for exploration.");
-        setEngine(std::make_unique<ParamILSEngine>(memory_, logger_, initial_configurations, parameter_space_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_evaluations, iteration_, nb_threads_solver_, cutoff_solver_time_, nb_workers_));
-        logger_.info("Default ParamILSEngine has been set.");
+        setEngine(std::make_unique<IteratedLocalSearchEngine>(
+            memory_,
+            logger_,
+            initial_configurations,
+            parameter_space_,
+            instance_file_,
+            param_ils_instance_file_,
+            solver_log_file_,
+            nb_evaluations,
+            iteration_,
+            nb_threads_solver_,
+            cutoff_solver_time_,
+            nb_workers_,
+            use_shared_cache_,
+            base_seed_,
+            tuning_objective_
+        ));
+        logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
     
     const std::vector<std::pair<int, std::vector<EvaluationRecord>>> evaluations = engine_->run();
 
     nb_evaluations = 0;
     for (const auto& evaluation_pair : evaluations) {
-        int worker_id = evaluation_pair.first;
         const std::vector<EvaluationRecord>& worker_evaluations = evaluation_pair.second;
-      //  memory_.addConfigurations(worker_configs, worker_id, iteration_, 0); // Phase 0 for exploration
         nb_evaluations += worker_evaluations.size();
     }
     
@@ -119,8 +198,10 @@ void Exploration::run() {
 std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
-    if (iteration_ > 1) {
+    if (iteration_ > 1 && nb_workers_ > 1) {
         mip_start_ = true;
+    } else {
+        mip_start_ = false;
     }
     logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
     
@@ -248,6 +329,7 @@ void ParamILSEngine::writeParamILSParameterFiles() {
         std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
 
         // open parameter file
+        ensureParentDirectoryForFile(parameter_file_path);
         std::ofstream myfile;
         myfile.open(parameter_file_path);
         if (!myfile.is_open()) {
@@ -276,10 +358,17 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         std::string parameter_file_path = param_ils_working_dir_ + "parameter/parameter_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) + ".txt";
        
         std::string tuning_obj = "qual";
+        const std::string solver_working_dir =
+            std::filesystem::path(solver_log_file_).parent_path().parent_path().string();
+        const std::string paramils_outdir =
+            param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) +
+            "_worker_" + std::to_string(i);
 
+        ensureParentDirectoryForFile(scenario_file_path);
+        ensureDirectoryExists(paramils_outdir);
         std::ofstream myfile;
         myfile.open(scenario_file_path);
-        myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb" << std::endl;
+        myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb --threads " + std::to_string(nb_threads_solver_) + " --work-dir " + solver_working_dir << std::endl;
         myfile << "execdir = ." << std::endl;
         myfile << "deterministic = 1" << std::endl;
         myfile << "run_obj = " << tuning_obj << std::endl;
@@ -289,7 +378,7 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         myfile << "wallclock-limit = " << cutoff_solver_time_*max_evaluations_ << std::endl;
         myfile << "logfile = " << solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
         myfile << "paramfile = " << parameter_file_path << std::endl;
-        myfile << "outdir = " + param_ils_working_dir_ + "paramils-out_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
+        myfile << "outdir = " << paramils_outdir << std::endl;
         myfile << "instance_file = " << param_ils_instance_file_ << std::endl;
         myfile << "test_instance_file = " << param_ils_instance_file_ << std::endl;
         myfile.close();
@@ -304,7 +393,8 @@ void ParamILSEngine::callParamILS() {
     local_search_start_time_ = GlobalTimer::elapsedSeconds();
 
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(0) + ".txt";
-    std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
+    const std::uint32_t num_run = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers_, 0);
+    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
     int ret = system(command.c_str());
     if (ret != 0) {
         logger_.info("Error calling ParamILS executable.");
@@ -378,6 +468,11 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
         }
         options.produced_mip_start = false; // Exploration phase does not produce MIP starts
         options.objective_value = obj;
+        if (gap >= 0) {
+            options.gap = gap;
+        }
+        options.upper_bound = std::nullopt;
+        options.lower_bound = std::nullopt;
         options.time_evaluated = config_elapsed_time;
         options.worker_id = worker_id;
         options.phase = 0; // Phase 0 for exploration
@@ -480,11 +575,12 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
 
 void LocalSearchEngine::setMipStartFile() {
     Configuration best_config = memory_.getBestConfiguration() != nullptr ? *memory_.getBestConfiguration() : memory_.getDefaultConfiguration();
-    mip_start_file_ = "tuner_working_dir/mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst";
-    std::string config_path = "tuner_working_dir/config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm";
+    mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
+    std::string config_path = buildTunerPath("config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm");
     best_config.generateConfigFile(config_path);
+    std::string mip_void = ""; // We do not want to use a mip start file for the solver, we just want to generate it with cplex, so we give it an empty file that does not exist, so it does not use it but it generates it
     // Call cplex on the best configuration found so far to generate the mip start file
-    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_start_file_);
+    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_void, mip_start_file_, tuning_objective_);
     solver.solve();
 
     if (!std::filesystem::exists(mip_start_file_)) {
@@ -497,6 +593,9 @@ void LocalSearchEngine::setMipStartFile() {
     RecordEvaluationOptions options;
     options.mip_start_used = false; // This evaluation is not using a mip start, it is producing one
     options.objective_value = objective_value;
+    options.gap = solver.getGap();
+    options.upper_bound = solver.getUpperBound();
+    options.lower_bound = solver.getLowerBound();
     options.time_evaluated = evaluated_time;
     options.worker_id = 0;
     options.phase = 0; // Phase 0 for exploration
@@ -507,10 +606,392 @@ void LocalSearchEngine::setMipStartFile() {
     memory_.recordEvaluation(best_config, options);
 }
 
+std::optional<double> IteratedLocalSearchEngine::getKnownInitialObjective_() const {
+    if (initial_configurations_.empty()) {
+        return std::nullopt;
+    }
+
+    const Configuration& initial_config = initial_configurations_[0];
+    try {
+        const ConfigurationStats& stats = memory_.getConfigurationStatsById(initial_config.getConfigurationId());
+        if (stats.nb_evaluations > 0) {
+            return stats.best_objective;
+        }
+    } catch (...) {
+        // configuration not yet known in memory
+    }
+
+    return std::nullopt;
+}
+
+void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& myfile) {
+    std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
+
+    const Configuration& initial_config = initial_configurations_[0];
+
+    for (auto& param : parameter_space_.getParameters()) {
+        Value initial_value = initial_config.getConfigurationMap().at(param.getName());
+
+        myfile << param.getName() << " {";
+        if (param.isTuned()) {
+            const auto& values = param.getValues();
+            bool first_written = true;
+            for (const auto& value : values) {
+                bool is_forbidden = false;
+                for (const auto& forbidden_pair : forbidden_values) {
+                    if (forbidden_pair.first == param.getName() &&
+                        forbidden_pair.second.getString() == value.getString()) {
+                        is_forbidden = true;
+                        if (value == initial_value) {
+                            logger_.info("Warning: Initial value for parameter ", param.getName(),
+                                         " is forbidden. So unforbidden it for the ILS initial configuration at iteration ",
+                                         iteration_, ".");
+                            is_forbidden = false;
+                        }
+                        break;
+                    }
+                }
+
+                if (is_forbidden) {
+                    continue;
+                }
+
+                if (!first_written) {
+                    myfile << ",";
+                }
+                myfile << value.getString();
+                first_written = false;
+            }
+        } else {
+            myfile << initial_value.getString();
+        }
+        myfile << "} [" << initial_value.getString() << "]" << std::endl;
+    }
+}
+
+void IteratedLocalSearchEngine::writeILSForbiddenOptionsToFile(std::ofstream& myfile) {
+    std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
+    const Configuration& initial_config = initial_configurations_[0];
+
+    for (const auto& tuple : forbidden_tuples) {
+        bool initial_contains_tuple = true;
+        for (const auto& pair : tuple) {
+            const std::string& param_name = pair.first;
+            const Value& forbidden_value = pair.second;
+
+            if (initial_config.getConfigurationMap().at(param_name).getString() == forbidden_value.getString()) {
+                continue;
+            } else {
+                initial_contains_tuple = false;
+                break;
+            }
+        }
+
+        if (initial_contains_tuple) {
+            logger_.info("Warning: Initial configuration contains a forbidden tuple. So unforbidden it for ILS at iteration ",
+                         iteration_, ".");
+            continue;
+        }
+
+        myfile << "{";
+        for (size_t i = 0; i < tuple.size(); ++i) {
+            myfile << tuple[i].first << "=" << tuple[i].second.getString();
+            if (i < tuple.size() - 1) {
+                myfile << ", ";
+            }
+        }
+        myfile << "}" << std::endl;
+    }
+}
+
+void IteratedLocalSearchEngine::writeILSConditionalCplexOptionsToFile(std::ofstream& myfile) {
+    myfile << std::endl;
+    myfile << "Conditionals:" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Limits_GomoryCand | CPXPARAM_MIP_Cuts_Gomory in {0,1,2} "
+           << "# CPXPARAM_MIP_Cuts_Gomory just can't be -1" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Limits_StrongCand | CPXPARAM_MIP_Strategy_VariableSelect in {3}" << std::endl;
+    myfile << "CPXPARAM_MIP_Limits_StrongIt | CPXPARAM_MIP_Strategy_VariableSelect in {3}" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Strategy_BBInterval | CPXPARAM_MIP_Strategy_NodeSelect in {2}" << std::endl;
+
+    myfile << "CPXPARAM_Preprocessing_NumPass | CPXPARAM_Preprocessing_Presolve in {1}" << std::endl;
+
+    myfile << "CPXPARAM_MIP_Strategy_Order | CPXPARAM_MIP_OrderType in {1,2,3}" << std::endl;
+}
+
+void IteratedLocalSearchEngine::writeILSInfoToFile(std::ofstream& myfile) {
+    myfile << std::endl;
+    myfile << "Info:" << std::endl;
+
+    const std::optional<double> known_objective = getKnownInitialObjective_();
+    if (known_objective.has_value()) {
+        myfile << "Initial configuration evaluated: 1" << std::endl;
+        myfile << "Objective value of the initial configuration: " << known_objective.value() << std::endl;
+    } else {
+        myfile << "Initial configuration evaluated: 0" << std::endl;
+    }
+}
+
+void IteratedLocalSearchEngine::writeILSSearchSpaceFile() {
+    logger_.info("Writing ILS search space file...");
+
+    ensureDirectoryExists(ils_working_dir_ + "search_space/");
+    ensureDirectoryExists(ils_working_dir_ + "local_results/");
+    search_space_file_ = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
+
+    ensureParentDirectoryForFile(search_space_file_);
+    std::ofstream myfile(search_space_file_);
+    if (!myfile.is_open()) {
+        throw std::runtime_error("Error opening ILS search space file for writing: " + search_space_file_);
+    }
+
+    writeILSParameterOptionsToFile(myfile);
+    writeILSForbiddenOptionsToFile(myfile);
+    writeILSConditionalCplexOptionsToFile(myfile);
+    writeILSInfoToFile(myfile);
+
+    myfile.close();
+
+    logger_.info("ILS search space file written: ", search_space_file_);
+}
+
+std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalMemory_(
+    int worker_id,
+    const std::vector<std::pair<Configuration, EvaluationRecord>>& local_results
+) {
+    std::vector<EvaluationRecord> synced_results;
+
+    const std::optional<double> known_initial_objective = getKnownInitialObjective_();
+    const Configuration& initial_config = initial_configurations_[0];
+
+    for (const auto& pair : local_results) {
+        const Configuration& config = pair.first;
+        const EvaluationRecord& local_record = pair.second;
+
+        // If the initial configuration was already known before launching ILS,
+        // then the injected local-cache record should not be duplicated in global memory.
+        if (known_initial_objective.has_value() &&
+            config == initial_config &&
+            local_record.objective_value == known_initial_objective.value()) {
+            continue;
+        }
+
+        RecordEvaluationOptions options;
+        options.objective_value = local_record.objective_value;
+        options.gap = local_record.gap;
+        options.upper_bound = local_record.upper_bound;
+        options.lower_bound = local_record.lower_bound;
+        options.time_evaluated = local_record.time_evaluated;
+        options.worker_id = worker_id;
+        options.iteration = iteration_;
+        options.phase = 0;
+
+        options.mip_start_used = config.useMipStart();
+        if (config.useMipStart() && mip_start_) {
+            options.used_mip_start_id = memory_.getMipStartToUse();
+        }
+
+        options.produced_mip_start = false;
+
+        EvaluationId eval_id = memory_.recordEvaluation(config, options);
+        const EvaluationRecord* global_eval = memory_.getEvaluationById(eval_id);
+        if (global_eval != nullptr) {
+            synced_results.push_back(*global_eval);
+        }
+    }
+
+    return synced_results;
+}
+
+std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEngine::run() {
+    logger_.info("Running IteratedLocalSearch Engine...");
+
+    std::vector<std::pair<int, std::vector<EvaluationRecord>>> exploration_results;
+
+    if (iteration_ > 1 && nb_workers_ > 1) {
+        mip_start_ = true;
+    } else {
+        mip_start_ = false;
+    }
+    logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
+
+    if (mip_start_) {
+        setMipStartFile();
+    }
+
+    writeILSSearchSpaceFile();
+
+#ifdef USE_MPI
+    launchLocalSearchWorkers();
+#endif
+
+    IteratedLocalSearch::Options ils_options;
+    ils_options.search_space_file = search_space_file_;
+    ils_options.instance_file = instance_file_;
+    ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_0";
+    ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_) + "_worker_0";
+    ils_options.random_seed = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers_, 0);
+    ils_options.evaluation_budget = max_evaluations_;
+    ils_options.perturbation_strength = 3;
+    ils_options.random_initial_samples = 0;
+    ils_options.restart_probability = 0.10;
+    ils_options.accept_ties = false;
+    ils_options.acceptance_threshold = 0.0;
+    ils_options.use_shared_cache = use_shared_cache_;
+    // Worker 0 never uses MIP starts. Only MPI worker 1 may consume the
+    // produced MIP start in later iterations.
+    ils_options.use_mip_starts = false;
+    ils_options.mip_start_file = std::nullopt;
+    ils_options.nb_threads_solver = nb_threads_solver_;
+    ils_options.cutoff_solver_time = cutoff_solver_time_;
+    ils_options.tuning_objective = tuning_objective_;
+
+    ils_ = std::make_unique<IteratedLocalSearch>(logger_, ils_options);
+    ils_->run();
+
+    // This accessor must exist in IteratedLocalSearch.
+    const auto local_results = ils_->getEvaluationsWithConfigurations();
+    std::vector<EvaluationRecord> synced_results = syncILSResultsToGlobalMemory_(0, local_results);
+    exploration_results.push_back(std::make_pair(0, synced_results));
+
+#ifdef USE_MPI
+    waitLocalSearchWorkers();
+#endif
+
+    // Read the results of the other workers and sync them to global memory
+    for (int worker_id = 1; worker_id < nb_workers_; ++worker_id) {
+        std::vector<std::pair<Configuration, EvaluationRecord>> worker_local_results = readLocalResultsFromFile_(worker_id);
+        std::vector<EvaluationRecord> worker_synced_results = syncILSResultsToGlobalMemory_(worker_id, worker_local_results);
+        exploration_results.push_back(std::make_pair(worker_id, worker_synced_results));
+    }    
+
+    logger_.info("IteratedLocalSearch Engine completed.");
+    return exploration_results;
+}
+
+std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngine::readLocalResultsFromFile_(int worker_id) {
+    std::vector<std::pair<Configuration, EvaluationRecord>> local_results;
+
+    const std::string local_results_file =
+        ils_working_dir_ + "local_results/local_results_" + std::to_string(iteration_) +
+        "_worker_" + std::to_string(worker_id) + ".txt";
+
+    std::ifstream file(local_results_file);
+    if (!file.is_open()) {
+        logger_.info("Error opening local results file for reading: ", local_results_file);
+        return local_results;
+    }
+
+    auto parseBool = [](const std::string& value) {
+        return value == "1" || value == "true" || value == "True";
+    };
+
+    std::string line;
+    bool in_configuration = false;
+    std::map<std::string, Value> config_map;
+    double objective_value = -1.0;
+    std::optional<double> gap = std::nullopt;
+    std::optional<double> upper_bound = std::nullopt;
+    std::optional<double> lower_bound = std::nullopt;
+    int time_evaluated = -1;
+    bool mip_start_used = false;
+    std::optional<MipStartId> used_mip_start_id = std::nullopt;
+    bool produced_mip_start = false;
+
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
+
+        if (line == "Configuration:") {
+            in_configuration = true;
+            config_map.clear();
+            objective_value = -1.0;
+            gap = std::nullopt;
+            upper_bound = std::nullopt;
+            lower_bound = std::nullopt;
+            time_evaluated = -1;
+            mip_start_used = false;
+            used_mip_start_id = std::nullopt;
+            produced_mip_start = false;
+            continue;
+        }
+
+        if (!in_configuration) {
+            continue;
+        }
+
+        if (line == "EndConfiguration") {
+            EvaluationRecord record{};
+            record.evaluation_id = 0;
+            record.objective_value = objective_value;
+            record.gap = gap;
+            record.upper_bound = upper_bound;
+            record.lower_bound = lower_bound;
+            record.time_evaluated = time_evaluated;
+            record.configuration_id = 0;
+            record.mip_start_used = mip_start_used;
+            record.used_mip_start_id = used_mip_start_id;
+            record.mip_start_source_evaluation_id = std::nullopt;
+            record.produced_mip_start = produced_mip_start;
+            record.produced_mip_start_id = std::nullopt;
+            record.worker_id = worker_id;
+            record.iteration = iteration_;
+            record.phase = 0;
+
+            local_results.emplace_back(Configuration(config_map, mip_start_used), record);
+            in_configuration = false;
+            continue;
+        }
+
+        const std::size_t eq_pos = line.find('=');
+        if (eq_pos == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = line.substr(0, eq_pos);
+        const std::string value = line.substr(eq_pos + 1);
+
+        if (key == "ObjectiveValue") {
+            objective_value = std::stod(value);
+        } else if (key == "Gap") {
+            gap = std::stod(value);
+        } else if (key == "UpperBound") {
+            upper_bound = std::stod(value);
+        } else if (key == "LowerBound") {
+            lower_bound = std::stod(value);
+        } else if (key == "TimeEvaluated") {
+            time_evaluated = std::stoi(value);
+        } else if (key == "MipStartUsed") {
+            mip_start_used = parseBool(value);
+        } else if (key == "UsedMipStartId") {
+            if (value != "-1" && value != "18446744073709551615") {
+                used_mip_start_id = static_cast<MipStartId>(std::stoull(value));
+            }
+        } else if (key == "ProducedMipStart") {
+            produced_mip_start = parseBool(value);
+        } else {
+            config_map.emplace(key, Value(value));
+        }
+    }
+
+    return local_results;
+}
+
+
 #ifdef USE_MPI
 void ParamILSWorker::callParamILS() {
+#ifdef USE_MPI
+    int nb_workers = 1;
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
+#else
+    const int nb_workers = 1;
+#endif
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
-    std::string command = "ruby " + param_ils_dir_ + param_ils_executable_ + " -numRun 0 -scenariofile " + scenario_file_path;
+    const std::uint32_t num_run = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers, worker_id_);
+    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
     int ret = system(command.c_str());
     if (ret != 0) {
         std::cout << "Error calling ParamILS executable for worker " << worker_id_ << " at iteration " << iteration_ << std::endl;
@@ -524,6 +1005,7 @@ void LocalSearchEngine::launchLocalSearchWorkers() {
     WorkerOrder order;
     order.step = 1; // exploration step
     order.iteration = iteration_;
+    order.nb_evaluations = max_evaluations_;
     MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
     logger_.info("Local Search Workers launched.");
 }
@@ -533,5 +1015,81 @@ void LocalSearchEngine::waitLocalSearchWorkers() {
     // Implementation to wait for local search workers using MPI
     MPI_Barrier(MPI_COMM_WORLD);
     logger_.info("Local Search Workers have completed.");
+}
+
+void IteratedLocalSearchWorker::callIteratedLocalSearch() {
+    int nb_workers = 0;
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
+    Logger worker_logger(Verbosity::Debug, std::cout);
+    std::string search_space_file = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
+    if (mip_start_ && worker_id_ == 1 && iteration_ > 1) {
+        mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
+        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
+    } else {
+        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file.");
+    }
+
+    IteratedLocalSearch::Options ils_options;
+    ils_options.search_space_file = search_space_file;
+    ils_options.instance_file = instance_file_;
+    ils_options.log_file_solver = solver_log_file_ + "_iteration_ils_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    ils_options.working_directory = ils_working_dir_ + "run_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
+    ils_options.random_seed = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers, worker_id_);
+    ils_options.evaluation_budget = max_evaluations_;
+    ils_options.perturbation_strength = 3;
+    ils_options.random_initial_samples = 0;
+    ils_options.restart_probability = 0.10;
+    ils_options.accept_ties = false;
+    ils_options.acceptance_threshold = 0.0;
+    ils_options.use_shared_cache = use_shared_cache_;
+    ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
+    if (ils_options.use_mip_starts) {
+        ils_options.mip_start_file = mip_start_file_;
+    }
+    ils_options.nb_threads_solver = nb_threads_solver_;
+    ils_options.cutoff_solver_time = cutoff_solver_time_;
+    ils_options.tuning_objective = tuning_objective_;
+
+    IteratedLocalSearch ils(worker_logger, ils_options);
+    ils.run();
+
+    const auto local_results = ils.getEvaluationsWithConfigurations();
+    // Write all the local results to a file that will be read by the master process to sync with global memory
+    std::string local_results_file = ils_working_dir_ + "local_results/local_results_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
+    ensureDirectoryExists(ils_working_dir_ + "local_results/");
+    ensureParentDirectoryForFile(local_results_file);
+    std::ofstream myfile(local_results_file);
+    if (!myfile.is_open()) {
+        worker_logger.info("Error opening local results file for writing: ", local_results_file);
+        return;
+    }
+    for (const auto& pair : local_results) {
+        const Configuration& config = pair.first;
+        const EvaluationRecord& record = pair.second;
+
+        myfile << "Configuration:" << std::endl;
+        for (const auto& param_pair : config.getConfigurationMap()) {
+            myfile << param_pair.first << "=" << param_pair.second.getString() << std::endl;
+        }
+        myfile << "ObjectiveValue=" << record.objective_value << std::endl;
+        if (record.gap.has_value()) {
+            myfile << "Gap=" << record.gap.value() << std::endl;
+        }
+        if (record.upper_bound.has_value()) {
+            myfile << "UpperBound=" << record.upper_bound.value() << std::endl;
+        }
+        if (record.lower_bound.has_value()) {
+            myfile << "LowerBound=" << record.lower_bound.value() << std::endl;
+        }
+        myfile << "TimeEvaluated=" << record.time_evaluated << std::endl;
+        myfile << "MipStartUsed=" << record.mip_start_used << std::endl;
+        if (record.mip_start_used) {
+            myfile << "UsedMipStartId=" << record.used_mip_start_id.value_or(-1) << std::endl;
+        }
+        myfile << "ProducedMipStart=" << record.produced_mip_start << std::endl;
+        //Todo: we could also write the produced mip start file path if produced_mip_start is true but change memory for that to store the path
+        myfile << "EndConfiguration" << std::endl;
+    }
+    myfile.close();
 }
 #endif

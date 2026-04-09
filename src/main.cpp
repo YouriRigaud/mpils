@@ -6,14 +6,21 @@
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
 #include "../include/globaltimer.h"
+#include "../include/tuning_objective.h"
+#include "../include/filesystem_utils.h"
+#include "../include/working_directory.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
 #endif
 
+#include <cstring>
+#include <limits>
+#include <stdexcept>
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <optional>
 
 // Use this struct to tune the options of the tuner
 struct TunerOptions {
@@ -27,18 +34,76 @@ struct TunerOptions {
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;
     int nb_workers = 1;
+    bool use_shared_cache = false;
+    bool exploration_only = false;
+    LocalSearchBackend local_search_backend = LocalSearchBackend::IteratedLocalSearch;
+    std::uint32_t seed = 0;
+    TuningObjective tuning_objective = TuningObjective::Gap;
+    std::optional<int> number_of_evaluations = std::nullopt;
 };
 
 void getTunerOptions(int argc, char** argv, TunerOptions& options) {
-    // Implementation to parse command line arguments and set options
-    // TODO: implement argument parsing
-    // If argument provided, use it as instance file
-    if (argc > 1) {
-        options.instance_file = std::string(argv[1]);
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--shared-cache") == 0) {
+            options.use_shared_cache = true;
+        } else if (std::strcmp(argv[i], "--no-shared-cache") == 0) {
+            options.use_shared_cache = false;
+        } else if (std::strcmp(argv[i], "--exploration-only") == 0) {
+            options.exploration_only = true;
+        } else if (std::strcmp(argv[i], "--local-search-engine") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --local-search-engine");
+            }
+            options.local_search_backend = parseLocalSearchBackend(argv[++i]);
+        } else if (std::strcmp(argv[i], "--seed") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --seed");
+            }
+            const unsigned long long parsed_seed = std::stoull(argv[++i]);
+            if (parsed_seed > std::numeric_limits<std::uint32_t>::max()) {
+                throw std::runtime_error("Seed value is too large for --seed");
+            }
+            options.seed = static_cast<std::uint32_t>(parsed_seed);
+        } else if (std::strcmp(argv[i], "--solver-threads") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-threads");
+            }
+            options.nb_threads_solver = std::stoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--solver-time") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-time");
+            }
+            options.cutoff_solver_time = std::stod(argv[++i]);
+        } else if (std::strcmp(argv[i], "--tuning-objective") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --tuning-objective");
+            }
+            options.tuning_objective = parseTuningObjective(argv[++i]);
+        } else if (std::strcmp(argv[i], "--number-of-evaluations") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --number-of-evaluations");
+            }
+            const int parsed_number_of_evaluations = std::stoi(argv[++i]);
+            if (parsed_number_of_evaluations <= 0) {
+                throw std::runtime_error("--number-of-evaluations must be greater than 0");
+            }
+            options.number_of_evaluations = parsed_number_of_evaluations;
+        } else if (std::strcmp(argv[i], "--working-dir") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --working-dir");
+            }
+            options.tuner_dir = normalizeTunerWorkingDirectory(argv[++i]);
+            options.solver_log_file = options.tuner_dir + "solver/cplex.log";
+        } else if (argv[i][0] != '-') {
+            options.instance_file = std::string(argv[i]);
+        } else {
+            throw std::runtime_error("Unknown command line option: " + std::string(argv[i]));
+        }
     }
 }
 
 void writeParamILSInstanceFile(const std::string& filepath, const std::string& instance_file) {
+    ensureParentDirectoryForFile(filepath);
     std::ofstream myfile;
     myfile.open(filepath);
     myfile << instance_file << std::endl;
@@ -48,6 +113,17 @@ void writeParamILSInstanceFile(const std::string& filepath, const std::string& i
 void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Welcome to the MPILS tuner!" << std::endl;
     std::cout << "Tuning instance: " << options.instance_file << std::endl;
+    std::cout << "ILS shared cache: " << (options.use_shared_cache ? "enabled" : "disabled") << std::endl;
+    std::cout << "Local search engine: " << localSearchBackendToString(options.local_search_backend) << std::endl;
+    std::cout << "Exploration only: " << (options.exploration_only ? "enabled" : "disabled") << std::endl;
+    std::cout << "Seed: " << options.seed << std::endl;
+    std::cout << "Tuning objective: " << tuningObjectiveToString(options.tuning_objective) << std::endl;
+    std::cout << "Number of evaluations: ";
+    if (options.number_of_evaluations.has_value()) {
+        std::cout << options.number_of_evaluations.value() << std::endl;
+    } else {
+        std::cout << "auto" << std::endl;
+    }
 
     // init a clock to measure tuning time
     GlobalTimer::start();
@@ -55,6 +131,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     writeParamILSInstanceFile(options.param_ils_instance_file, options.instance_file);
 
     std::string log_file_path = options.tuner_dir + "tuner.log";
+    ensureParentDirectoryForFile(log_file_path);
     std::ofstream log_file(log_file_path);
     Tuner tuner(
         Verbosity::Debug,
@@ -68,7 +145,13 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.nb_parameter_to_evaluate_expansion,
         options.nb_threads_solver,
         options.cutoff_solver_time,
-        options.nb_workers
+        options.nb_workers,
+        options.use_shared_cache,
+        options.exploration_only,
+        options.local_search_backend,
+        options.seed,
+        options.tuning_objective,
+        options.number_of_evaluations
     );
     
     tuner.setup();
@@ -97,7 +180,7 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
@@ -107,6 +190,7 @@ int main(int argc, char** argv) {
 
     TunerOptions options;
     getTunerOptions(argc, argv, options);
+    setTunerWorkingDirectory(options.tuner_dir);
 
 #ifdef USE_MPI
     MPI_Init(&argc, &argv);

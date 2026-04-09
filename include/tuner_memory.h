@@ -16,6 +16,7 @@
 #define TUNER_MEMORY_H
 
 #include "configuration.h"
+#include "filesystem_utils.h"
 #include "parameter_space.h"
 #include "logger.h"
 #include "globaltimer.h"
@@ -32,7 +33,7 @@
 #include <algorithm>
 #include <string>
 
-static constexpr double kMaxObjective = 100.0;
+static constexpr double kMaxObjective = std::numeric_limits<double>::max();
 
 using EvaluationId = uint64_t;
 using MipStartId = uint64_t;
@@ -51,7 +52,10 @@ struct ConfigurationStats {
  */
 struct EvaluationRecord {
     EvaluationId evaluation_id;
-    double objective_value;
+    double objective_value; ///< Tuning objective value for this evaluation (currently upper bound with fallback)
+    std::optional<double> gap; ///< Solver gap recorded for this evaluation, if available
+    std::optional<double> upper_bound; ///< Solver upper bound recorded for this evaluation, if available
+    std::optional<double> lower_bound; ///< Solver lower bound recorded for this evaluation, if available
     int time_evaluated;
     ConfigurationId configuration_id;
 
@@ -77,7 +81,10 @@ struct MipStartRecord {
 };
 
 struct RecordEvaluationOptions {
-    double objective_value = -1.0;    /// Objective value obtained from the evaluation. If not evaluated, can be set to -1.0 or any negative value.
+    double objective_value = std::numeric_limits<double>::max(); /// Tuning objective value obtained from the evaluation.
+    std::optional<double> gap = std::nullopt; /// Solver gap obtained from the evaluation, if available.
+    std::optional<double> upper_bound = std::nullopt; /// Solver upper bound obtained from the evaluation, if available.
+    std::optional<double> lower_bound = std::nullopt; /// Solver lower bound obtained from the evaluation, if available.
     int time_evaluated = -1;    /// Time when the configuration was evaluated (in seconds since tuning started).
     int worker_id = -1;         /// ID of the worker that performed the evaluation (for logging purposes).
     int iteration = -1;         /// Iteration number during which the evaluation was performed (for logging purposes).
@@ -233,23 +240,35 @@ class TunerMemory {
             return best_objective_;
         }
 
+        /** @brief Return true if any recorded evaluation has a gap at or below the given threshold */
+        bool hasEvaluationAtOrBelowGap(double threshold) const {
+            return std::any_of(evaluations_.begin(), evaluations_.end(),
+                               [threshold](const EvaluationRecord& record) {
+                                   return record.gap.has_value() && record.gap.value() <= threshold;
+                               });
+        }
+
         /** @brief Get the best objective value found so far among evaluations that did not use MIP start */
         double getBestObjectiveWithoutMipStart() const {
             return best_objective_without_mip_start_;
         }
 
         void exportEvaluationLogCSV(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write evaluation log: " + filename);
             }
             // Write header
-            file << "EvalID,TimeEvaluated,ObjectiveValue,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
+            file << "EvalID,TimeEvaluated,ObjectiveValue,Gap,UpperBound,LowerBound,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
             // Write records
             for (const auto& record : evaluations_) {
                 file << record.evaluation_id << ","
                      << record.time_evaluated << ","
                      << record.objective_value << ","
+                     << (record.gap.has_value() ? std::to_string(record.gap.value()) : "") << ","
+                     << (record.upper_bound.has_value() ? std::to_string(record.upper_bound.value()) : "") << ","
+                     << (record.lower_bound.has_value() ? std::to_string(record.lower_bound.value()) : "") << ","
                      << record.configuration_id << ",";
                 if (record.mip_start_used) {
                     file << (record.used_mip_start_id.has_value() ? std::to_string(record.used_mip_start_id.value()) : "null");
@@ -265,6 +284,7 @@ class TunerMemory {
         }
 
         void exportUniqueConfigsCSV(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write unique configurations: " + filename);
@@ -288,6 +308,7 @@ class TunerMemory {
         }
 
         void exportUniqueMipStartsCSV(const std::string& filename) const {
+            ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
             if (!file.is_open()) {
                 throw std::runtime_error("Could not open file to write unique MIP starts: " + filename);
@@ -317,6 +338,20 @@ class TunerMemory {
                 }
             }
             return configs_with_objectives;
+        }
+
+        /** @brief Get the best MIP start file from the memory */
+        std::optional<std::string> getBestMipStartFile() const {
+            if (mip_starts_by_id_.empty()) {
+                return std::nullopt;
+            }
+            // Return the last MIP start generated, which is the one with the highest ID (next_mip_start_id_ - 1)
+            MipStartId best_mip_start_id = next_mip_start_id_ - 1;
+            auto it = mip_starts_by_id_.find(best_mip_start_id);
+            if (it != mip_starts_by_id_.end()) {
+                return it->second.mip_start_file;
+            }
+            return std::nullopt;
         }
 };
 

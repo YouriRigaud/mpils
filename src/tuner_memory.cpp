@@ -27,10 +27,10 @@ EvaluationRecord TunerMemory::createEvaluationRecord_(const RecordEvaluationOpti
     record.configuration_id = config_id;
 
     // Compute the objective value, clamping it if necessary
-    record.objective_value = clampObjective_(options.objective_value); // if options.objective_value is negative, it means the configuration is not evaluated (that should not happen)
-    if (record.objective_value < 0) {
-        logger_.warn("Creating an evaluation record with negative objective value: ", record.objective_value, ". ConfidId: ", record.configuration_id, " This should not happen, check the solver logs for potential errors.");
-    }
+    record.objective_value = clampObjective_(options.objective_value);
+    record.gap = options.gap;
+    record.upper_bound = options.upper_bound;
+    record.lower_bound = options.lower_bound;
 
     // Compute the time evaluated (in seconds since tuning started)
     if (options.time_evaluated >= 0) {
@@ -92,7 +92,7 @@ void TunerMemory::updateStatsForConfiguration_(const EvaluationRecord& record) {
     ConfigurationId config_id = record.configuration_id;
     ConfigurationStats& stats = stats_by_id_[config_id];
     stats.nb_evaluations++;
-    if (record.objective_value >= 0 && record.objective_value < stats.best_objective) {
+    if (record.objective_value < stats.best_objective) {
         stats.best_objective = record.objective_value;
         stats.best_evaluation_id = record.evaluation_id;
     }
