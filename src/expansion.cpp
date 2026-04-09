@@ -14,6 +14,8 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 void Expansion::run() {
     logger_.info("Starting expansion phase...");
@@ -104,18 +106,24 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
             best_config = &memory_.getDefaultConfiguration();
         }
 
-        // This method evaluate only 2 values
-	    std::vector<Value> valueToEvaluate;
-	    const auto& values = param.getValues();
+        std::vector<Value> values_to_evaluate;
+        const auto values = param.getValues();
 
-	    if (values.size() == 1) {
-	        valueToEvaluate.push_back(values.front());
-	    } else {
-            valueToEvaluate.push_back(values.front());
-    	    valueToEvaluate.push_back(values.back());
+        switch (value_strategy_) {
+            case ExpansionValueStrategy::All:
+                values_to_evaluate = values;
+                break;
+            case ExpansionValueStrategy::FirstLast:
+                if (values.size() <= 1) {
+                    values_to_evaluate = values;
+                } else {
+                    values_to_evaluate.push_back(values.front());
+                    values_to_evaluate.push_back(values.back());
+                }
+                break;
         }
 
-        for (const auto& value : valueToEvaluate) {
+        for (const auto& value : values_to_evaluate) {
             std::string config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
             std::map<std::string, Value> config_map = best_config->getConfigurationMap();
             config_map.insert_or_assign(param.getName(), value);
@@ -283,34 +291,84 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 
 const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const std::vector<EvaluateParameterOutput>& evaluation_results) {
     logger_.info("Classifying expansion parameters...");
-    std::vector<ClassifyParameterOutput> classified_parameters;
+    struct ParameterClassificationMetrics {
+        Parameter& parameter;
+        double c_p;
+        double s_p;
+        bool selected_stage_1;
+        bool dominated = false;
+    };
+
+    std::vector<ParameterClassificationMetrics> metrics;
+    metrics.reserve(evaluation_results.size());
 
     for (const auto& eval_output : evaluation_results) {
         Parameter& param = eval_output.parameter;
         const auto& evaluations = eval_output.evaluations;
 
-        // Simple classification logic: if the best configuration with this parameter is better than the best overall, select it
-        //TODO: More sophisticated classification logic can be implemented here
-
-        double param_best_objective = std::numeric_limits<double>::max();
+        double c_p = std::numeric_limits<double>::max();
+        double squared_deviation_sum = 0.0;
         for (const auto& evaluation : evaluations) {
-            if (evaluation.objective_value < param_best_objective) {
-                param_best_objective = evaluation.objective_value;
-            }
+            c_p = std::min(c_p, evaluation.objective_value);
+            const double deviation = evaluation.objective_value - best_objective_value_;
+            squared_deviation_sum += deviation * deviation;
         }
 
-        bool toSelect = false;
+        double s_p = 0.0;
+        if (evaluations.size() >= 2) {
+            s_p = std::sqrt(squared_deviation_sum / static_cast<double>(evaluations.size() - 1));
+        }
+
+        bool selected_stage_1 = false;
         switch (select_rule_) {
             case ExpansionSelectRule::Strict:
-                toSelect = param_best_objective < best_objective_value_;
+                selected_stage_1 = c_p < best_objective_value_;
                 break;
             case ExpansionSelectRule::Inclusive:
-                toSelect = param_best_objective <= best_objective_value_;
+                selected_stage_1 = c_p <= best_objective_value_;
                 break;
         }
-        bool toDiscard = !toSelect && (param_best_objective >= best_objective_value_ * 1.0); // Discard if significantly worse
 
-        classified_parameters.push_back({param, toSelect, toDiscard});
+        metrics.push_back({param, c_p, s_p, selected_stage_1, false});
+    }
+
+    for (size_t i = 0; i < metrics.size(); ++i) {
+        if (metrics[i].selected_stage_1) {
+            continue;
+        }
+
+        for (size_t j = 0; j < metrics.size(); ++j) {
+            if (i == j || metrics[j].selected_stage_1) {
+                continue;
+            }
+
+            const bool dominates =
+                (metrics[j].c_p < metrics[i].c_p && metrics[j].s_p >= metrics[i].s_p) ||
+                (metrics[j].c_p <= metrics[i].c_p && metrics[j].s_p > metrics[i].s_p);
+
+            if (dominates) {
+                metrics[i].dominated = true;
+                break;
+            }
+        }
+    }
+
+    std::vector<ClassifyParameterOutput> classified_parameters;
+    classified_parameters.reserve(metrics.size());
+
+    for (const auto& metric : metrics) {
+        const bool toSelect = metric.selected_stage_1 || !metric.dominated;
+        const bool toDiscard = !metric.selected_stage_1 && metric.dominated;
+
+        logger_.debug(
+            "Parameter ", metric.parameter.getName(),
+            " metrics - c_p: ", metric.c_p,
+            ", s_p: ", metric.s_p,
+            ", selected_stage_1: ", metric.selected_stage_1 ? "Yes" : "No",
+            ", dominated: ", metric.dominated ? "Yes" : "No"
+        );
+
+        classified_parameters.push_back({metric.parameter, toSelect, toDiscard});
     }
 
     return classified_parameters;

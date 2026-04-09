@@ -19,6 +19,11 @@ enum class ExpansionSelectRule {
     Inclusive
 };
 
+enum class ExpansionValueStrategy {
+    All,
+    FirstLast
+};
+
 inline std::string expansionSelectRuleToString(ExpansionSelectRule rule) {
     switch (rule) {
         case ExpansionSelectRule::Strict:
@@ -37,6 +42,26 @@ inline ExpansionSelectRule parseExpansionSelectRule(const std::string& value) {
         return ExpansionSelectRule::Inclusive;
     }
     throw std::runtime_error("Unknown expansion select rule: " + value);
+}
+
+inline std::string expansionValueStrategyToString(ExpansionValueStrategy strategy) {
+    switch (strategy) {
+        case ExpansionValueStrategy::All:
+            return "all";
+        case ExpansionValueStrategy::FirstLast:
+            return "first_last";
+    }
+    throw std::runtime_error("Unknown expansion value strategy.");
+}
+
+inline ExpansionValueStrategy parseExpansionValueStrategy(const std::string& value) {
+    if (value == "all") {
+        return ExpansionValueStrategy::All;
+    }
+    if (value == "first_last") {
+        return ExpansionValueStrategy::FirstLast;
+    }
+    throw std::runtime_error("Unknown expansion value strategy: " + value);
 }
 
 struct CreateConfigurationsOutput {
@@ -79,6 +104,7 @@ class Expansion {
         double cutoff_solver_time_;
         TuningObjective tuning_objective_;
         ExpansionSelectRule select_rule_;
+        ExpansionValueStrategy value_strategy_;
 
         double best_objective_value_;
 
@@ -122,7 +148,8 @@ class Expansion {
             int nb_threads_solver,
             double cutoff_solver_time,
             TuningObjective tuning_objective,
-            ExpansionSelectRule select_rule
+            ExpansionSelectRule select_rule,
+            ExpansionValueStrategy value_strategy
         ): logger_(logger),
            memory_(memory),
            parameter_space_(parameter_space),
@@ -134,7 +161,8 @@ class Expansion {
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
            tuning_objective_(tuning_objective),
-           select_rule_(select_rule)
+           select_rule_(select_rule),
+           value_strategy_(value_strategy)
         {}
 
         void run();
