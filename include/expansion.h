@@ -12,6 +12,32 @@
 #include "parameter_space.h"
 
 #include <string>
+#include <stdexcept>
+
+enum class ExpansionSelectRule {
+    Strict,
+    Inclusive
+};
+
+inline std::string expansionSelectRuleToString(ExpansionSelectRule rule) {
+    switch (rule) {
+        case ExpansionSelectRule::Strict:
+            return "strict";
+        case ExpansionSelectRule::Inclusive:
+            return "inclusive";
+    }
+    throw std::runtime_error("Unknown expansion select rule.");
+}
+
+inline ExpansionSelectRule parseExpansionSelectRule(const std::string& value) {
+    if (value == "strict") {
+        return ExpansionSelectRule::Strict;
+    }
+    if (value == "inclusive") {
+        return ExpansionSelectRule::Inclusive;
+    }
+    throw std::runtime_error("Unknown expansion select rule: " + value);
+}
 
 struct CreateConfigurationsOutput {
     Parameter& parameter;
@@ -52,6 +78,7 @@ class Expansion {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         TuningObjective tuning_objective_;
+        ExpansionSelectRule select_rule_;
 
         double best_objective_value_;
 
@@ -94,7 +121,8 @@ class Expansion {
             int nb_parameter_to_evaluate,
             int nb_threads_solver,
             double cutoff_solver_time,
-            TuningObjective tuning_objective
+            TuningObjective tuning_objective,
+            ExpansionSelectRule select_rule
         ): logger_(logger),
            memory_(memory),
            parameter_space_(parameter_space),
@@ -105,7 +133,8 @@ class Expansion {
            nb_parameter_to_evaluate_(nb_parameter_to_evaluate),
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
-           tuning_objective_(tuning_objective)
+           tuning_objective_(tuning_objective),
+           select_rule_(select_rule)
         {}
 
         void run();

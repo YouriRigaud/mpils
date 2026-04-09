@@ -299,7 +299,15 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
             }
         }
 
-        bool toSelect = param_best_objective < best_objective_value_;
+        bool toSelect = false;
+        switch (select_rule_) {
+            case ExpansionSelectRule::Strict:
+                toSelect = param_best_objective < best_objective_value_;
+                break;
+            case ExpansionSelectRule::Inclusive:
+                toSelect = param_best_objective <= best_objective_value_;
+                break;
+        }
         bool toDiscard = !toSelect && (param_best_objective >= best_objective_value_ * 1.0); // Discard if significantly worse
 
         classified_parameters.push_back({param, toSelect, toDiscard});

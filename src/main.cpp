@@ -29,7 +29,7 @@ struct TunerOptions {
     std::string instance_file = "./cplex/30n20b8.mps";
     std::string param_ils_instance_file = "./cplex/instances.txt";
     std::string solver_log_file = "./tuner_working_dir/solver/cplex.log";
-    int nb_initial_selected_parameters = 12;
+    int nb_initial_selected_parameters = 10;
     int nb_parameter_to_evaluate_expansion = 20;
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;
@@ -42,6 +42,7 @@ struct TunerOptions {
     std::optional<int> number_of_evaluations = std::nullopt;
     int max_iterations = 15;
     bool enable_mip_starts = true;
+    ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict;
 };
 
 void printHelp(const char* program_name) {
@@ -61,6 +62,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --tuning-objective NAME         Set the tuning objective (gap or upper_bound)" << std::endl;
     std::cout << "  --number-of-evaluations N       Override the exploration evaluation budget" << std::endl;
     std::cout << "  --max-iterations N              Set the maximum number of tuner iterations" << std::endl;
+    std::cout << "  --expansion-select-rule MODE    Set expansion selection comparison (strict or inclusive)" << std::endl;
     std::cout << "  --shared-cache                  Enable shared cache for ILS workers" << std::endl;
     std::cout << "  --no-shared-cache               Disable shared cache for ILS workers" << std::endl;
     std::cout << "  --exploration-only              Stop after the exploration phase" << std::endl;
@@ -153,6 +155,11 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             if (options.max_iterations <= 0) {
                 throw std::runtime_error("--max-iterations must be greater than 0");
             }
+        } else if (std::strcmp(argv[i], "--expansion-select-rule") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --expansion-select-rule");
+            }
+            options.expansion_select_rule = parseExpansionSelectRule(argv[++i]);
         } else if (std::strcmp(argv[i], "--enable-mip-starts") == 0) {
             options.enable_mip_starts = true;
         } else if (std::strcmp(argv[i], "--disable-mip-starts") == 0) {
@@ -191,6 +198,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "ParamILS instance file: " << options.param_ils_instance_file << std::endl;
     std::cout << "Initial selected parameters: " << options.nb_initial_selected_parameters << std::endl;
     std::cout << "Expansion parameter budget: " << options.nb_parameter_to_evaluate_expansion << std::endl;
+    std::cout << "Expansion select rule: " << expansionSelectRuleToString(options.expansion_select_rule) << std::endl;
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
     std::cout << "Number of evaluations: ";
@@ -228,7 +236,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.tuning_objective,
         options.number_of_evaluations,
         options.max_iterations,
-        options.enable_mip_starts
+        options.enable_mip_starts,
+        options.expansion_select_rule
     );
     
     tuner.setup();
