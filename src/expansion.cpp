@@ -296,27 +296,54 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
         double c_p;
         double s_p;
         bool selected_stage_1;
+        bool discarded_by_threshold = false;
         bool dominated = false;
     };
 
     std::vector<ParameterClassificationMetrics> metrics;
     metrics.reserve(evaluation_results.size());
+    std::vector<ClassifyParameterOutput> classified_parameters;
+    classified_parameters.reserve(evaluation_results.size());
+
+    const double invalid_objective_value = std::numeric_limits<double>::max();
 
     for (const auto& eval_output : evaluation_results) {
         Parameter& param = eval_output.parameter;
         const auto& evaluations = eval_output.evaluations;
 
+        std::vector<double> valid_objectives;
+        valid_objectives.reserve(evaluations.size());
+        int invalid_evaluation_count = 0;
+        for (const auto& evaluation : evaluations) {
+            const double objective_value = evaluation.objective_value;
+            const bool is_invalid = !std::isfinite(objective_value) || objective_value == invalid_objective_value;
+            if (is_invalid) {
+                invalid_evaluation_count++;
+                continue;
+            }
+            valid_objectives.push_back(objective_value);
+        }
+
+        if (valid_objectives.empty()) {
+            logger_.debug(
+                "Parameter ", param.getName(),
+                " discarded before classification because all evaluations were invalid."
+            );
+            classified_parameters.push_back({param, false, true});
+            continue;
+        }
+
         double c_p = std::numeric_limits<double>::max();
         double squared_deviation_sum = 0.0;
-        for (const auto& evaluation : evaluations) {
-            c_p = std::min(c_p, evaluation.objective_value);
-            const double deviation = evaluation.objective_value - best_objective_value_;
+        for (double objective_value : valid_objectives) {
+            c_p = std::min(c_p, objective_value);
+            const double deviation = objective_value - best_objective_value_;
             squared_deviation_sum += deviation * deviation;
         }
 
         double s_p = 0.0;
-        if (evaluations.size() >= 2) {
-            s_p = std::sqrt(squared_deviation_sum / static_cast<double>(evaluations.size() - 1));
+        if (valid_objectives.size() >= 2) {
+            s_p = std::sqrt(squared_deviation_sum / static_cast<double>(valid_objectives.size() - 1));
         }
 
         bool selected_stage_1 = false;
@@ -329,7 +356,24 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
                 break;
         }
 
-        metrics.push_back({param, c_p, s_p, selected_stage_1, false});
+        const bool discarded_by_threshold = s_p > max_deviation_;
+
+        logger_.debug(
+            "Parameter ", param.getName(),
+            " valid evaluations: ", valid_objectives.size(),
+            ", invalid evaluations: ", invalid_evaluation_count,
+            ", c_p: ", c_p,
+            ", s_p: ", s_p,
+            ", selected_stage_1: ", selected_stage_1 ? "Yes" : "No",
+            ", discarded_by_threshold: ", discarded_by_threshold ? "Yes" : "No"
+        );
+
+        if (discarded_by_threshold) {
+            classified_parameters.push_back({param, false, true});
+            continue;
+        }
+
+        metrics.push_back({param, c_p, s_p, selected_stage_1, false, false});
     }
 
     for (size_t i = 0; i < metrics.size(); ++i) {
@@ -353,9 +397,6 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
         }
     }
 
-    std::vector<ClassifyParameterOutput> classified_parameters;
-    classified_parameters.reserve(metrics.size());
-
     for (const auto& metric : metrics) {
         const bool toSelect = metric.selected_stage_1 || !metric.dominated;
         const bool toDiscard = !metric.selected_stage_1 && metric.dominated;
@@ -365,6 +406,7 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
             " metrics - c_p: ", metric.c_p,
             ", s_p: ", metric.s_p,
             ", selected_stage_1: ", metric.selected_stage_1 ? "Yes" : "No",
+            ", discarded_by_threshold: ", metric.discarded_by_threshold ? "Yes" : "No",
             ", dominated: ", metric.dominated ? "Yes" : "No"
         );
 

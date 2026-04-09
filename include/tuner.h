@@ -19,6 +19,7 @@
 #include <string>
 #include <fstream>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 class Tuner {
@@ -45,6 +46,7 @@ class Tuner {
         const bool enable_mip_starts_;           ///< Whether exploration can use MIP starts
         const ExpansionSelectRule expansion_select_rule_; ///< Comparison rule used by expansion selection
         const ExpansionValueStrategy expansion_value_strategy_; ///< Value selection strategy used by expansion
+        const double expansion_max_deviation_;   ///< Maximum allowed deviation for expansion classification
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -93,7 +95,8 @@ class Tuner {
             int max_iterations = 15,
             bool enable_mip_starts = true,
             ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict,
-            ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast
+            ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast,
+            double expansion_max_deviation = std::numeric_limits<double>::max()
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -113,10 +116,11 @@ class Tuner {
             enable_mip_starts_(enable_mip_starts),
             expansion_select_rule_(expansion_select_rule),
             expansion_value_strategy_(expansion_value_strategy),
+            expansion_max_deviation_(expansion_max_deviation),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_),
-            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_),
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 

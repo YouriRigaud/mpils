@@ -44,6 +44,7 @@ struct TunerOptions {
     bool enable_mip_starts = true;
     ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict;
     ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast;
+    double expansion_max_deviation = std::numeric_limits<double>::max();
 };
 
 void printHelp(const char* program_name) {
@@ -65,6 +66,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --max-iterations N              Set the maximum number of tuner iterations" << std::endl;
     std::cout << "  --expansion-select-rule MODE    Set expansion selection comparison (strict or inclusive)" << std::endl;
     std::cout << "  --expansion-value-strategy MODE Set expansion value evaluation strategy (all or first_last)" << std::endl;
+    std::cout << "  --expansion-max-deviation VALUE Set the maximum allowed RMS deviation during expansion classification" << std::endl;
     std::cout << "  --shared-cache                  Enable shared cache for ILS workers" << std::endl;
     std::cout << "  --no-shared-cache               Disable shared cache for ILS workers" << std::endl;
     std::cout << "  --exploration-only              Stop after the exploration phase" << std::endl;
@@ -167,6 +169,14 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("Missing value for --expansion-value-strategy");
             }
             options.expansion_value_strategy = parseExpansionValueStrategy(argv[++i]);
+        } else if (std::strcmp(argv[i], "--expansion-max-deviation") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --expansion-max-deviation");
+            }
+            options.expansion_max_deviation = std::stod(argv[++i]);
+            if (options.expansion_max_deviation < 0.0) {
+                throw std::runtime_error("--expansion-max-deviation must be non-negative");
+            }
         } else if (std::strcmp(argv[i], "--enable-mip-starts") == 0) {
             options.enable_mip_starts = true;
         } else if (std::strcmp(argv[i], "--disable-mip-starts") == 0) {
@@ -207,6 +217,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Expansion parameter budget: " << options.nb_parameter_to_evaluate_expansion << std::endl;
     std::cout << "Expansion select rule: " << expansionSelectRuleToString(options.expansion_select_rule) << std::endl;
     std::cout << "Expansion value strategy: " << expansionValueStrategyToString(options.expansion_value_strategy) << std::endl;
+    std::cout << "Expansion max deviation: " << options.expansion_max_deviation << std::endl;
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
     std::cout << "Number of evaluations: ";
@@ -246,7 +257,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.max_iterations,
         options.enable_mip_starts,
         options.expansion_select_rule,
-        options.expansion_value_strategy
+        options.expansion_value_strategy,
+        options.expansion_max_deviation
     );
     
     tuner.setup();

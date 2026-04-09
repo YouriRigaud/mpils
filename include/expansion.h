@@ -105,6 +105,7 @@ class Expansion {
         TuningObjective tuning_objective_;
         ExpansionSelectRule select_rule_;
         ExpansionValueStrategy value_strategy_;
+        double max_deviation_;
 
         double best_objective_value_;
 
@@ -149,7 +150,8 @@ class Expansion {
             double cutoff_solver_time,
             TuningObjective tuning_objective,
             ExpansionSelectRule select_rule,
-            ExpansionValueStrategy value_strategy
+            ExpansionValueStrategy value_strategy,
+            double max_deviation
         ): logger_(logger),
            memory_(memory),
            parameter_space_(parameter_space),
@@ -162,7 +164,8 @@ class Expansion {
            cutoff_solver_time_(cutoff_solver_time),
            tuning_objective_(tuning_objective),
            select_rule_(select_rule),
-           value_strategy_(value_strategy)
+           value_strategy_(value_strategy),
+           max_deviation_(max_deviation)
         {}
 
         void run();
