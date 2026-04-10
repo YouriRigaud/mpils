@@ -15,14 +15,13 @@ void CPLEXSolver::solve() {
     gap_ = std::numeric_limits<double>::max();
     upper_bound_ = std::nullopt;
     lower_bound_ = std::nullopt;
+    ensureParentDirectoryForFile(log_file_);
+    std::ofstream logStream(log_file_, std::ios::app);
     try {
         IloModel model(env);
         IloCplex cplex(model);
         
         // Set log file
-        ensureParentDirectoryForFile(log_file_);
-        std::ofstream logStream(log_file_, std::ios::app);
-        
         logStream << "\n===== New CPLEX run =====\n";
         logStream << "Instance: " << instance_file_ << "\n";
         logStream << "Config: " << config_file_path_ << "\n";
@@ -48,21 +47,29 @@ void CPLEXSolver::solve() {
             cplex.readMIPStarts(mip_start_from_file_.c_str());
         }
         // Solve the model
+        double startTime = cplex.getCplexTime();
         cplex.solve();
-        // Get gap and time
-        gap_ = cplex.getMIPRelativeGap() * 100.0; // Convert to percentage
-        // change number of floating point precision to 1e-2
-        gap_ = std::round(gap_ * 100.0) / 100.0;
-        time_sec_ = cplex.getTime();
+        double endTime = cplex.getCplexTime();
+        time_sec_ = endTime - startTime;
+
         if (cplex.isPrimalFeasible()) {
             upper_bound_ = cplex.getObjValue();
+            gap_ = cplex.getMIPRelativeGap() * 100.0; // Convert to percentage
+            gap_ = std::round(gap_ * 100.0) / 100.0; // Round to 1e-2
+        } else {
+            logger_.warn("CPLEX finished without a primal feasible solution for config ", config_file_path_, ".");
         }
-        lower_bound_ = cplex.getBestObjValue();
+        try {
+            lower_bound_ = cplex.getBestObjValue();
+        } catch (IloException&) {
+            lower_bound_ = std::nullopt;
+        }
 
         const std::string upper_bound_text = upper_bound_.has_value() ? std::to_string(upper_bound_.value()) : "null";
         const std::string lower_bound_text = lower_bound_.has_value() ? std::to_string(lower_bound_.value()) : "null";
+        const std::string gap_text = gap_ == std::numeric_limits<double>::max() ? "unavailable" : std::to_string(gap_);
 
-        logger_.info("CPLEX results. Gap: ", gap_, ", upper bound: ", upper_bound_text, ", lower bound: ", lower_bound_text);
+        logger_.info("CPLEX results. Gap: ", gap_text, ", upper bound: ", upper_bound_text, ", lower bound: ", lower_bound_text);
         if (upper_bound_.has_value() && lower_bound_.has_value() && upper_bound_.value() < lower_bound_.value()) {
             logger_.warn("Inconsistent solver bounds for config ", config_file_path_,
                          ": upper bound ", upper_bound_.value(),
@@ -70,7 +77,11 @@ void CPLEXSolver::solve() {
         }
         
         // Log the gap in the cplex log file
-        logStream << "Gap: " << gap_ << "%\n";
+        if (gap_ == std::numeric_limits<double>::max()) {
+            logStream << "Gap: unavailable\n";
+        } else {
+            logStream << "Gap: " << gap_ << "%\n";
+        }
         if (upper_bound_.has_value()) {
             logStream << "Upper bound: " << upper_bound_.value() << "\n";
         }
@@ -78,7 +89,7 @@ void CPLEXSolver::solve() {
             logStream << "Lower bound: " << lower_bound_.value() << "\n";
         }
         logStream << "End of CPLEX run. Time: " << time_sec_ << " seconds\n";
-        logStream.close();
+        logStream.flush();
 
         // write mip start file
         if (!produce_mip_start_file_.empty()) {
@@ -87,10 +98,17 @@ void CPLEXSolver::solve() {
             logger_.info("Writing MIP start file: " + produce_mip_start_file_);
         }
     } catch (IloException& e) {
+        logStream << "CPLEX Exception: " << e << "\n";
+        logStream << "End of CPLEX run due to exception.\n";
+        logStream.flush();
         env.error() << "CPLEX Exception: " << e << std::endl;
     } catch (...) {
+        logStream << "Unknown exception caught.\n";
+        logStream << "End of CPLEX run due to exception.\n";
+        logStream.flush();
         env.error() << "Unknown exception caught." << std::endl;
     }
+    logStream.close();
     env.end();
     logger_.info("CPLEX solver finished. Gap: " + std::to_string(gap_));
 }
