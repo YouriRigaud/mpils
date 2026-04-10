@@ -120,6 +120,8 @@ class Expansion {
 
         const std::vector<std::reference_wrapper<Parameter>> selectParameters();
 
+        std::vector<Value> selectValuesToEvaluate(const Parameter& param, const Configuration& base_config) const;
+
         const std::vector<CreateConfigurationsOutput> createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters);
 
         const std::vector<EvaluateParameterOutput> evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files);

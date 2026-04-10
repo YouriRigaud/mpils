@@ -91,6 +91,42 @@ const std::vector<std::reference_wrapper<Parameter>> Expansion::selectParameters
     return selected_parameters;
 }
 
+std::vector<Value> Expansion::selectValuesToEvaluate(const Parameter& param, const Configuration& base_config) const {
+    std::vector<Value> candidate_values;
+    const std::vector<Value> values = param.getValues();
+
+    switch (value_strategy_) {
+        case ExpansionValueStrategy::All:
+            candidate_values = values;
+            break;
+        case ExpansionValueStrategy::FirstLast:
+            if (values.size() <= 1) {
+                candidate_values = values;
+            } else {
+                candidate_values.push_back(values.front());
+                if (!(values.back() == values.front())) {
+                    candidate_values.push_back(values.back());
+                }
+            }
+            break;
+    }
+
+    auto current_value_it = base_config.getConfigurationMap().find(param.getName());
+    if (current_value_it == base_config.getConfigurationMap().end()) {
+        return candidate_values;
+    }
+
+    std::vector<Value> filtered_values;
+    filtered_values.reserve(candidate_values.size());
+    for (const Value& value : candidate_values) {
+        if (!(value == current_value_it->second)) {
+            filtered_values.push_back(value);
+        }
+    }
+
+    return filtered_values;
+}
+
 const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters) {
     logger_.info("Creating configuration files for expansion parameters...");
     std::vector<CreateConfigurationsOutput> configuration_files_outputs;
@@ -106,22 +142,20 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
             best_config = &memory_.getDefaultConfiguration();
         }
 
-        std::vector<Value> values_to_evaluate;
-        const auto values = param.getValues();
-
-        switch (value_strategy_) {
-            case ExpansionValueStrategy::All:
-                values_to_evaluate = values;
-                break;
-            case ExpansionValueStrategy::FirstLast:
-                if (values.size() <= 1) {
-                    values_to_evaluate = values;
-                } else {
-                    values_to_evaluate.push_back(values.front());
-                    values_to_evaluate.push_back(values.back());
-                }
-                break;
+        std::vector<Value> values_to_evaluate = selectValuesToEvaluate(param, *best_config);
+        if (values_to_evaluate.empty()) {
+            logger_.info(
+                "Skipping parameter ", param.getName(),
+                " during expansion because no alternative value remains after excluding the current base configuration value."
+            );
+            continue;
         }
+
+        logger_.debug(
+            "Parameter ", param.getName(),
+            " will be evaluated on ", values_to_evaluate.size(),
+            " alternative value(s) after excluding the current base configuration value."
+        );
 
         for (const auto& value : values_to_evaluate) {
             std::string config_file_path = expansion_working_dir_ + "config_param_" + param.getName() + "_" + value.getString() + "_iter_" + std::to_string(iteration_) + ".prm";
