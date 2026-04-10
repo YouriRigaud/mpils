@@ -289,93 +289,67 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     return evaluation_outputs;
 }
 
-const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const std::vector<EvaluateParameterOutput>& evaluation_results) {
-    logger_.info("Classifying expansion parameters...");
-    struct ParameterClassificationMetrics {
-        Parameter& parameter;
-        double c_p;
-        double s_p;
-        bool selected_stage_1;
-        bool discarded_by_threshold = false;
-        bool dominated = false;
-    };
+bool Expansion::isInvalidExpansionObjective(double objective_value) const {
+    return !std::isfinite(objective_value) || objective_value == std::numeric_limits<double>::max();
+}
 
-    std::vector<ParameterClassificationMetrics> metrics;
-    metrics.reserve(evaluation_results.size());
-    std::vector<ClassifyParameterOutput> classified_parameters;
-    classified_parameters.reserve(evaluation_results.size());
+std::vector<double> Expansion::extractValidObjectives(const EvaluateParameterOutput& eval_output, int& invalid_count) const {
+    std::vector<double> valid_objectives;
+    valid_objectives.reserve(eval_output.evaluations.size());
+    invalid_count = 0;
 
-    const double invalid_objective_value = std::numeric_limits<double>::max();
-
-    for (const auto& eval_output : evaluation_results) {
-        Parameter& param = eval_output.parameter;
-        const auto& evaluations = eval_output.evaluations;
-
-        std::vector<double> valid_objectives;
-        valid_objectives.reserve(evaluations.size());
-        int invalid_evaluation_count = 0;
-        for (const auto& evaluation : evaluations) {
-            const double objective_value = evaluation.objective_value;
-            const bool is_invalid = !std::isfinite(objective_value) || objective_value == invalid_objective_value;
-            if (is_invalid) {
-                invalid_evaluation_count++;
-                continue;
-            }
-            valid_objectives.push_back(objective_value);
-        }
-
-        if (valid_objectives.empty()) {
-            logger_.debug(
-                "Parameter ", param.getName(),
-                " discarded before classification because all evaluations were invalid."
-            );
-            classified_parameters.push_back({param, false, true});
+    for (const auto& evaluation : eval_output.evaluations) {
+        const double objective_value = evaluation.objective_value;
+        if (isInvalidExpansionObjective(objective_value)) {
+            invalid_count++;
             continue;
         }
-
-        double c_p = std::numeric_limits<double>::max();
-        double squared_deviation_sum = 0.0;
-        for (double objective_value : valid_objectives) {
-            c_p = std::min(c_p, objective_value);
-            const double deviation = objective_value - best_objective_value_;
-            squared_deviation_sum += deviation * deviation;
-        }
-
-        double s_p = 0.0;
-        if (valid_objectives.size() >= 2) {
-            s_p = std::sqrt(squared_deviation_sum / static_cast<double>(valid_objectives.size() - 1));
-        }
-
-        bool selected_stage_1 = false;
-        switch (select_rule_) {
-            case ExpansionSelectRule::Strict:
-                selected_stage_1 = c_p < best_objective_value_;
-                break;
-            case ExpansionSelectRule::Inclusive:
-                selected_stage_1 = c_p <= best_objective_value_;
-                break;
-        }
-
-        const bool discarded_by_threshold = s_p > max_deviation_;
-
-        logger_.debug(
-            "Parameter ", param.getName(),
-            " valid evaluations: ", valid_objectives.size(),
-            ", invalid evaluations: ", invalid_evaluation_count,
-            ", c_p: ", c_p,
-            ", s_p: ", s_p,
-            ", selected_stage_1: ", selected_stage_1 ? "Yes" : "No",
-            ", discarded_by_threshold: ", discarded_by_threshold ? "Yes" : "No"
-        );
-
-        if (discarded_by_threshold) {
-            classified_parameters.push_back({param, false, true});
-            continue;
-        }
-
-        metrics.push_back({param, c_p, s_p, selected_stage_1, false, false});
+        valid_objectives.push_back(objective_value);
     }
 
+    return valid_objectives;
+}
+
+bool Expansion::isSelectedByDirectImprovement(double c_p) const {
+    switch (select_rule_) {
+        case ExpansionSelectRule::Strict:
+            return c_p < best_objective_value_;
+        case ExpansionSelectRule::Inclusive:
+            return c_p <= best_objective_value_;
+    }
+
+    return false;
+}
+
+bool Expansion::shouldDiscardByDeviation(double s_p) const {
+    return s_p > max_deviation_;
+}
+
+Expansion::ParameterClassificationMetrics Expansion::computeParameterMetrics(Parameter& param, const std::vector<double>& valid_objectives) const {
+    double c_p = std::numeric_limits<double>::max();
+    double squared_deviation_sum = 0.0;
+
+    for (double objective_value : valid_objectives) {
+        c_p = std::min(c_p, objective_value);
+        const double deviation = objective_value - best_objective_value_;
+        squared_deviation_sum += deviation * deviation;
+    }
+
+    double s_p = 0.0;
+    if (valid_objectives.size() >= 2) {
+        s_p = std::sqrt(squared_deviation_sum / static_cast<double>(valid_objectives.size() - 1));
+    }
+
+    return {param, c_p, s_p, isSelectedByDirectImprovement(c_p), shouldDiscardByDeviation(s_p), false};
+}
+
+bool Expansion::doesParetoDominate(const ParameterClassificationMetrics& lhs, const ParameterClassificationMetrics& rhs) const {
+    return
+        (lhs.c_p < rhs.c_p && lhs.s_p >= rhs.s_p) ||
+        (lhs.c_p <= rhs.c_p && lhs.s_p > rhs.s_p);
+}
+
+void Expansion::markDominatedParameters(std::vector<ParameterClassificationMetrics>& metrics) const {
     for (size_t i = 0; i < metrics.size(); ++i) {
         if (metrics[i].selected_stage_1) {
             continue;
@@ -386,31 +360,79 @@ const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const s
                 continue;
             }
 
-            const bool dominates =
-                (metrics[j].c_p < metrics[i].c_p && metrics[j].s_p >= metrics[i].s_p) ||
-                (metrics[j].c_p <= metrics[i].c_p && metrics[j].s_p > metrics[i].s_p);
-
-            if (dominates) {
+            if (doesParetoDominate(metrics[j], metrics[i])) {
                 metrics[i].dominated = true;
+                logger_.debug(
+                    "Parameter ", metrics[i].parameter.getName(),
+                    " is dominated by parameter ", metrics[j].parameter.getName(), "."
+                );
                 break;
             }
         }
     }
+}
 
-    for (const auto& metric : metrics) {
-        const bool toSelect = metric.selected_stage_1 || !metric.dominated;
-        const bool toDiscard = !metric.selected_stage_1 && metric.dominated;
+ClassifyParameterOutput Expansion::buildClassificationOutput(const ParameterClassificationMetrics& metric) const {
+    const bool toSelect = metric.selected_stage_1 || !metric.dominated;
+    const bool toDiscard = !metric.selected_stage_1 && metric.dominated;
+
+    logger_.debug(
+        "Parameter ", metric.parameter.getName(),
+        " metrics - c_p: ", metric.c_p,
+        ", s_p: ", metric.s_p,
+        ", selected_stage_1: ", metric.selected_stage_1 ? "Yes" : "No",
+        ", discarded_by_threshold: ", metric.discarded_by_threshold ? "Yes" : "No",
+        ", dominated: ", metric.dominated ? "Yes" : "No"
+    );
+
+    return {metric.parameter, toSelect, toDiscard};
+}
+
+const std::vector<ClassifyParameterOutput> Expansion::classifyParameters(const std::vector<EvaluateParameterOutput>& evaluation_results) {
+    logger_.info("Classifying expansion parameters...");
+    std::vector<ParameterClassificationMetrics> metrics;
+    metrics.reserve(evaluation_results.size());
+    std::vector<ClassifyParameterOutput> classified_parameters;
+    classified_parameters.reserve(evaluation_results.size());
+
+    for (const auto& eval_output : evaluation_results) {
+        Parameter& param = eval_output.parameter;
+        int invalid_evaluation_count = 0;
+        std::vector<double> valid_objectives = extractValidObjectives(eval_output, invalid_evaluation_count);
+
+        if (valid_objectives.empty()) {
+            logger_.debug(
+                "Parameter ", param.getName(),
+                " discarded before classification because all evaluations were invalid."
+            );
+            classified_parameters.push_back({param, false, true});
+            continue;
+        }
+
+        ParameterClassificationMetrics metric = computeParameterMetrics(param, valid_objectives);
 
         logger_.debug(
-            "Parameter ", metric.parameter.getName(),
-            " metrics - c_p: ", metric.c_p,
+            "Parameter ", param.getName(),
+            " valid evaluations: ", valid_objectives.size(),
+            ", invalid evaluations: ", invalid_evaluation_count,
+            ", c_p: ", metric.c_p,
             ", s_p: ", metric.s_p,
             ", selected_stage_1: ", metric.selected_stage_1 ? "Yes" : "No",
-            ", discarded_by_threshold: ", metric.discarded_by_threshold ? "Yes" : "No",
-            ", dominated: ", metric.dominated ? "Yes" : "No"
+            ", discarded_by_threshold: ", metric.discarded_by_threshold ? "Yes" : "No"
         );
 
-        classified_parameters.push_back({metric.parameter, toSelect, toDiscard});
+        if (metric.discarded_by_threshold) {
+            classified_parameters.push_back({param, false, true});
+            continue;
+        }
+
+        metrics.push_back(metric);
+    }
+
+    markDominatedParameters(metrics);
+
+    for (const auto& metric : metrics) {
+        classified_parameters.push_back(buildClassificationOutput(metric));
     }
 
     return classified_parameters;

@@ -92,6 +92,15 @@ struct ClassifyParameterOutput {
 
 class Expansion {
     private:
+        struct ParameterClassificationMetrics {
+            Parameter& parameter;
+            double c_p;
+            double s_p;
+            bool selected_stage_1;
+            bool discarded_by_threshold = false;
+            bool dominated = false;
+        };
+
         Logger& logger_;
         TunerMemory& memory_;
         ParameterSpace& parameter_space_;
@@ -116,6 +125,22 @@ class Expansion {
         const std::vector<EvaluateParameterOutput> evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files);
 
         const std::vector<ClassifyParameterOutput> classifyParameters(const std::vector<EvaluateParameterOutput>& evaluation_results);
+
+        bool isInvalidExpansionObjective(double objective_value) const;
+
+        std::vector<double> extractValidObjectives(const EvaluateParameterOutput& eval_output, int& invalid_count) const;
+
+        ParameterClassificationMetrics computeParameterMetrics(Parameter& param, const std::vector<double>& valid_objectives) const;
+
+        bool isSelectedByDirectImprovement(double c_p) const;
+
+        bool shouldDiscardByDeviation(double s_p) const;
+
+        bool doesParetoDominate(const ParameterClassificationMetrics& lhs, const ParameterClassificationMetrics& rhs) const;
+
+        void markDominatedParameters(std::vector<ParameterClassificationMetrics>& metrics) const;
+
+        ClassifyParameterOutput buildClassificationOutput(const ParameterClassificationMetrics& metric) const;
 
         void updateParameterFlags(const std::vector<ClassifyParameterOutput>& classified_parameters);
 
