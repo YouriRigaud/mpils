@@ -29,7 +29,8 @@ void Expansion::run() {
     }
     logger_.info("Selected expansion parameters: ", expansion_parameters.size());
 
-    const std::vector<CreateConfigurationsOutput> configuration_files = createConfigurationsFiles(expansion_parameters);
+    const PrepareExpansionOutput preparation_output = createConfigurationsFiles(expansion_parameters);
+    const std::vector<CreateConfigurationsOutput>& configuration_files = preparation_output.configuration_files;
 
 #ifdef USE_MPI
     launchExpansionWorkers();
@@ -43,7 +44,21 @@ void Expansion::run() {
 
     logger_.info("Evaluated expansion parameters: ", evaluation_results.size());
 
-    const std::vector<ClassifyParameterOutput> classified_parameters = classifyParameters(evaluation_results);
+    std::vector<ClassifyParameterOutput> classified_parameters;
+    classified_parameters.reserve(preparation_output.skipped_parameters.size() + evaluation_results.size());
+
+    for (Parameter& param : preparation_output.skipped_parameters) {
+        logger_.info(
+            "Parameter ", param.getName(),
+            " skipped during expansion and marked for discard because no alternative value remains to evaluate."
+        );
+        classified_parameters.push_back({param, false, true});
+    }
+
+    const std::vector<ClassifyParameterOutput> evaluated_classified_parameters = classifyParameters(evaluation_results);
+    for (const auto& classified_parameter : evaluated_classified_parameters) {
+        classified_parameters.push_back(classified_parameter);
+    }
 
     updateParameterFlags(classified_parameters);
 
@@ -127,9 +142,9 @@ std::vector<Value> Expansion::selectValuesToEvaluate(const Parameter& param, con
     return filtered_values;
 }
 
-const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters) {
+const PrepareExpansionOutput Expansion::createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters) {
     logger_.info("Creating configuration files for expansion parameters...");
-    std::vector<CreateConfigurationsOutput> configuration_files_outputs;
+    PrepareExpansionOutput output;
 
     for (auto& param_ref : parameters) {
         Parameter& param = param_ref.get();
@@ -148,6 +163,7 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
                 "Skipping parameter ", param.getName(),
                 " during expansion because no alternative value remains after excluding the current base configuration value."
             );
+            output.skipped_parameters.push_back(param);
             continue;
         }
 
@@ -165,12 +181,13 @@ const std::vector<CreateConfigurationsOutput> Expansion::createConfigurationsFil
             Configuration config(config_map);
             config.generateConfigFile(config_file_path);
             
-            configuration_files_outputs.push_back({param, config, config_file_path});
+            output.configuration_files.push_back({param, config, config_file_path});
             logger_.debug("Created configuration file for parameter ", param.getName(), " with value ", value.getString(), " at ", config_file_path);
         }
     }
-    logger_.info("Created ", configuration_files_outputs.size(), " configuration files for expansion phase at iteration ", iteration_, ".");
-    return configuration_files_outputs;
+    logger_.info("Created ", output.configuration_files.size(), " configuration files for expansion phase at iteration ", iteration_, ".");
+    logger_.info("Skipped ", output.skipped_parameters.size(), " expansion parameter(s) with no alternative value to evaluate.");
+    return output;
 }
 
 void Expansion::addToEvaluateParameters(

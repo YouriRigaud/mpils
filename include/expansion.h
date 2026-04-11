@@ -70,6 +70,11 @@ struct CreateConfigurationsOutput {
     std::string config_file_path;
 };
 
+struct PrepareExpansionOutput {
+    std::vector<CreateConfigurationsOutput> configuration_files;
+    std::vector<std::reference_wrapper<Parameter>> skipped_parameters;
+};
+
 struct EvaluateParameterOutput {
     Parameter& parameter;
     std::vector<EvaluationRecord> evaluations;
@@ -122,7 +127,7 @@ class Expansion {
 
         std::vector<Value> selectValuesToEvaluate(const Parameter& param, const Configuration& base_config) const;
 
-        const std::vector<CreateConfigurationsOutput> createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters);
+        const PrepareExpansionOutput createConfigurationsFiles(const std::vector<std::reference_wrapper<Parameter>>& parameters);
 
         const std::vector<EvaluateParameterOutput> evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files);
 
