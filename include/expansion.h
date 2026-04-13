@@ -135,6 +135,10 @@ class Expansion {
 
         bool isInvalidExpansionObjective(double objective_value) const;
 
+        bool shouldUseSequentialExpansionEarlyStop() const;
+
+        bool isSequentialExpansionImprovement(double objective_value) const;
+
         std::vector<double> extractValidObjectives(const EvaluateParameterOutput& eval_output, int& invalid_count) const;
 
         ParameterClassificationMetrics computeParameterMetrics(Parameter& param, const std::vector<double>& valid_objectives) const;

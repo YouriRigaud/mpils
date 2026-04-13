@@ -237,6 +237,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     for (size_t i = 0; i < configuration_files_outputs.size(); ++i) {
         configs_to_evaluate.emplace_back(i, configuration_files_outputs[i].config_file_path);
     }
+    const bool use_sequential_early_stop = shouldUseSequentialExpansionEarlyStop();
 #ifdef USE_MPI
     // Split configs_to_evaluate between master and workers
     int nb_workers = 1; // Default to 1 for non-MPI
@@ -288,6 +289,15 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 
         const auto& create_output = configuration_files_outputs[config_id];
         addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, gap, upper_bound, lower_bound, evaluated_time, 0, evaluation_outputs);
+
+        if (use_sequential_early_stop && isSequentialExpansionImprovement(objective_value)) {
+            logger_.info(
+                "Sequential expansion early stop triggered by parameter ", create_output.parameter.getName(),
+                " with objective value ", objective_value,
+                ". Remaining not-yet-evaluated parameters stay residual."
+            );
+            break;
+        }
     }
 #ifdef USE_MPI
     // Receive results from workers
@@ -342,6 +352,20 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 
 bool Expansion::isInvalidExpansionObjective(double objective_value) const {
     return !std::isfinite(objective_value) || objective_value == std::numeric_limits<double>::max();
+}
+
+bool Expansion::shouldUseSequentialExpansionEarlyStop() const {
+#ifdef USE_MPI
+    int world_size = 1;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    return world_size == 1;
+#else
+    return true;
+#endif
+}
+
+bool Expansion::isSequentialExpansionImprovement(double objective_value) const {
+    return objective_value < best_objective_value_;
 }
 
 std::vector<double> Expansion::extractValidObjectives(const EvaluateParameterOutput& eval_output, int& invalid_count) const {
