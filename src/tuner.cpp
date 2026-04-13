@@ -305,7 +305,8 @@ void Worker::runExplorationPhase() {
                 tuning_objective_,
                 base_seed_,
                 use_shared_cache_,
-                use_mip_start
+                use_mip_start,
+                random_worker_initial_configs_
             ));
             break;
         case LocalSearchBackend::ParamILS:
@@ -315,7 +316,8 @@ void Worker::runExplorationPhase() {
                 tuning_objective_,
                 base_seed_,
                 use_mip_start,
-                use_shared_cache_
+                use_shared_cache_,
+                random_worker_initial_configs_
             ));
             break;
     }

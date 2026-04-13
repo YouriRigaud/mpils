@@ -37,6 +37,7 @@ class LocalSearchEngine {
         bool mip_start_;
         TuningObjective tuning_objective_;
         std::uint32_t base_seed_;
+        bool random_worker_initial_configs_;
         MipStartId used_mip_start_id_;
         std::string mip_start_file_;
 
@@ -65,7 +66,8 @@ class LocalSearchEngine {
             int nb_workers,
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
-            bool mip_start = false
+            bool mip_start = false,
+            bool random_worker_initial_configs = true
         ): memory_(memory),
            logger_(logger),
            initial_configurations_(initial_configurations),
@@ -80,7 +82,8 @@ class LocalSearchEngine {
            nb_workers_(nb_workers),
            mip_start_(mip_start),
            tuning_objective_(tuning_objective),
-           base_seed_(base_seed)
+           base_seed_(base_seed),
+           random_worker_initial_configs_(random_worker_initial_configs)
         {}
 
         virtual ~LocalSearchEngine() = default;
@@ -96,11 +99,13 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
         const std::string ils_working_dir_ = buildTunerPath("iterated_local_search/");
         std::string search_space_file_;
 
-        void writeILSSearchSpaceFile();
-        void writeILSParameterOptionsToFile(std::ofstream& myfile);
-        void writeILSForbiddenOptionsToFile(std::ofstream& myfile);
+        const Configuration& getInitialConfigurationForWorker_(int worker_id) const;
+        std::string getILSSearchSpaceFilePath_(int worker_id) const;
+        void writeILSSearchSpaceFile(int worker_id);
+        void writeILSParameterOptionsToFile(std::ofstream& myfile, int worker_id);
+        void writeILSForbiddenOptionsToFile(std::ofstream& myfile, int worker_id);
         void writeILSConditionalCplexOptionsToFile(std::ofstream& myfile);
-        void writeILSInfoToFile(std::ofstream& myfile);
+        void writeILSInfoToFile(std::ofstream& myfile, int worker_id);
 
         std::optional<double> getKnownInitialObjective_() const;
 
@@ -128,8 +133,9 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             bool use_shared_cache,
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
-            bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, base_seed, tuning_objective, mip_start),
+            bool mip_start = false,
+            bool random_worker_initial_configs = true
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs),
            use_shared_cache_(use_shared_cache)
         {}
 
@@ -232,6 +238,7 @@ class Exploration {
         TuningObjective tuning_objective_;
         std::optional<int> number_of_evaluations_override_;
         bool enable_mip_starts_;
+        bool random_worker_initial_configs_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -257,7 +264,8 @@ class Exploration {
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
             std::optional<int> number_of_evaluations_override = std::nullopt,
-            bool enable_mip_starts = true
+            bool enable_mip_starts = true,
+            bool random_worker_initial_configs = true
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -273,7 +281,8 @@ class Exploration {
            base_seed_(base_seed),
            tuning_objective_(tuning_objective),
            number_of_evaluations_override_(number_of_evaluations_override),
-           enable_mip_starts_(enable_mip_starts)
+           enable_mip_starts_(enable_mip_starts),
+           random_worker_initial_configs_(random_worker_initial_configs)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {
@@ -295,9 +304,10 @@ class LocalSearchWorker {
         bool use_shared_cache_;
         std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
+        bool random_worker_initial_configs_;
         
     public:
-        LocalSearchWorker(int worker_id, int iteration, TuningObjective tuning_objective, std::uint32_t base_seed, bool mip_start = false, bool use_shared_cache = false): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective) {}
+        LocalSearchWorker(int worker_id, int iteration, TuningObjective tuning_objective, std::uint32_t base_seed, bool mip_start = false, bool use_shared_cache = false, bool random_worker_initial_configs = true): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective), random_worker_initial_configs_(random_worker_initial_configs) {}
 
         LocalSearchWorker(
             int worker_id,
@@ -307,8 +317,9 @@ class LocalSearchWorker {
             TuningObjective tuning_objective,
             std::uint32_t base_seed,
             bool mip_start = false,
-            bool use_shared_cache = false
-        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective)
+            bool use_shared_cache = false,
+            bool random_worker_initial_configs = true
+        ): worker_id_(worker_id), iteration_(iteration), mip_start_(mip_start), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective), random_worker_initial_configs_(random_worker_initial_configs)
         {}
 
         virtual ~LocalSearchWorker() = default;
@@ -331,8 +342,9 @@ class ParamILSWorker : public LocalSearchWorker {
             TuningObjective tuning_objective,
             std::uint32_t base_seed,
             bool mip_start = false,
-            bool use_shared_cache = false
-        ): LocalSearchWorker(worker_id, iteration, tuning_objective, base_seed, mip_start, use_shared_cache)
+            bool use_shared_cache = false,
+            bool random_worker_initial_configs = true
+        ): LocalSearchWorker(worker_id, iteration, tuning_objective, base_seed, mip_start, use_shared_cache, random_worker_initial_configs)
         {}
 
         void run() override {
@@ -362,8 +374,9 @@ class IteratedLocalSearchWorker : public LocalSearchWorker {
             TuningObjective tuning_objective,
             std::uint32_t base_seed,
             bool use_shared_cache,
-            bool mip_start = false
-        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, tuning_objective, base_seed, mip_start, use_shared_cache), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
+            bool mip_start = false,
+            bool random_worker_initial_configs = true
+        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, tuning_objective, base_seed, mip_start, use_shared_cache, random_worker_initial_configs), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
         {}
 
         void run() override {

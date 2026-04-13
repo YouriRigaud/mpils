@@ -44,6 +44,7 @@ class Tuner {
         const TuningObjective tuning_objective_; ///< Objective used by direct CPLEX paths
         const int max_iterations_;               ///< Maximum number of tuner iterations
         const bool enable_mip_starts_;           ///< Whether exploration can use MIP starts
+        const bool random_worker_initial_configs_; ///< Whether MPI ILS workers use per-rank initial configs
         const ExpansionSelectRule expansion_select_rule_; ///< Comparison rule used by expansion selection
         const ExpansionValueStrategy expansion_value_strategy_; ///< Value selection strategy used by expansion
         const double expansion_max_deviation_;   ///< Maximum allowed deviation for expansion classification
@@ -94,6 +95,7 @@ class Tuner {
             std::optional<int> number_of_evaluations = std::nullopt,
             int max_iterations = 15,
             bool enable_mip_starts = true,
+            bool random_worker_initial_configs = true,
             ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict,
             ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast,
             double expansion_max_deviation = std::numeric_limits<double>::max()
@@ -114,12 +116,13 @@ class Tuner {
             tuning_objective_(tuning_objective),
             max_iterations_(max_iterations),
             enable_mip_starts_(enable_mip_starts),
+            random_worker_initial_configs_(random_worker_initial_configs),
             expansion_select_rule_(expansion_select_rule),
             expansion_value_strategy_(expansion_value_strategy),
             expansion_max_deviation_(expansion_max_deviation),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_, random_worker_initial_configs_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
@@ -171,6 +174,7 @@ class Worker {
         std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
         bool enable_mip_starts_;
+        bool random_worker_initial_configs_;
         int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
@@ -195,7 +199,7 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts, bool random_worker_initial_configs)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
@@ -207,7 +211,8 @@ class Worker {
               local_search_backend_(local_search_backend),
               base_seed_(base_seed),
               tuning_objective_(tuning_objective),
-              enable_mip_starts_(enable_mip_starts)
+              enable_mip_starts_(enable_mip_starts),
+              random_worker_initial_configs_(random_worker_initial_configs)
         {}
 
         void run(); // Run the worker process

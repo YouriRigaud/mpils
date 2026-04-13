@@ -138,7 +138,8 @@ void Exploration::run() {
                 use_shared_cache_,
                 base_seed_,
                 tuning_objective_,
-                enable_mip_starts_
+                enable_mip_starts_,
+                random_worker_initial_configs_
             ));
             break;
         case LocalSearchBackend::ParamILS:
@@ -180,7 +181,8 @@ void Exploration::run() {
             use_shared_cache_,
             base_seed_,
             tuning_objective_,
-            enable_mip_starts_
+            enable_mip_starts_,
+            random_worker_initial_configs_
         ));
         logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
@@ -627,10 +629,30 @@ std::optional<double> IteratedLocalSearchEngine::getKnownInitialObjective_() con
     return std::nullopt;
 }
 
-void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& myfile) {
+const Configuration& IteratedLocalSearchEngine::getInitialConfigurationForWorker_(int worker_id) const {
+    if (!random_worker_initial_configs_ || worker_id <= 0) {
+        return initial_configurations_[0];
+    }
+    if (worker_id == 1 && mip_start_) {
+        return initial_configurations_[0];
+    }
+    if (worker_id < static_cast<int>(initial_configurations_.size())) {
+        return initial_configurations_[worker_id];
+    }
+    return initial_configurations_[0];
+}
+
+std::string IteratedLocalSearchEngine::getILSSearchSpaceFilePath_(int worker_id) const {
+    if (!random_worker_initial_configs_ || worker_id == 0) {
+        return ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
+    }
+    return ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id) + ".txt";
+}
+
+void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& myfile, int worker_id) {
     std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
 
-    const Configuration& initial_config = initial_configurations_[0];
+    const Configuration& initial_config = getInitialConfigurationForWorker_(worker_id);
 
     for (auto& param : parameter_space_.getParameters()) {
         Value initial_value = initial_config.getConfigurationMap().at(param.getName());
@@ -672,9 +694,9 @@ void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& my
     }
 }
 
-void IteratedLocalSearchEngine::writeILSForbiddenOptionsToFile(std::ofstream& myfile) {
+void IteratedLocalSearchEngine::writeILSForbiddenOptionsToFile(std::ofstream& myfile, int worker_id) {
     std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
-    const Configuration& initial_config = initial_configurations_[0];
+    const Configuration& initial_config = getInitialConfigurationForWorker_(worker_id);
 
     for (const auto& tuple : forbidden_tuples) {
         bool initial_contains_tuple = true;
@@ -724,11 +746,12 @@ void IteratedLocalSearchEngine::writeILSConditionalCplexOptionsToFile(std::ofstr
     myfile << "CPXPARAM_MIP_Strategy_Order | CPXPARAM_MIP_OrderType in {1,2,3}" << std::endl;
 }
 
-void IteratedLocalSearchEngine::writeILSInfoToFile(std::ofstream& myfile) {
+void IteratedLocalSearchEngine::writeILSInfoToFile(std::ofstream& myfile, int worker_id) {
     myfile << std::endl;
     myfile << "Info:" << std::endl;
 
-    const std::optional<double> known_objective = getKnownInitialObjective_();
+    const std::optional<double> known_objective =
+        worker_id == 0 ? getKnownInitialObjective_() : std::nullopt;
     if (known_objective.has_value()) {
         myfile << "Initial configuration evaluated: 1" << std::endl;
         myfile << "Objective value of the initial configuration: " << known_objective.value() << std::endl;
@@ -737,27 +760,30 @@ void IteratedLocalSearchEngine::writeILSInfoToFile(std::ofstream& myfile) {
     }
 }
 
-void IteratedLocalSearchEngine::writeILSSearchSpaceFile() {
-    logger_.info("Writing ILS search space file...");
+void IteratedLocalSearchEngine::writeILSSearchSpaceFile(int worker_id) {
+    logger_.info("Writing ILS search space file for worker ", worker_id, "...");
 
     ensureDirectoryExists(ils_working_dir_ + "search_space/");
     ensureDirectoryExists(ils_working_dir_ + "local_results/");
-    search_space_file_ = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
-
-    ensureParentDirectoryForFile(search_space_file_);
-    std::ofstream myfile(search_space_file_);
-    if (!myfile.is_open()) {
-        throw std::runtime_error("Error opening ILS search space file for writing: " + search_space_file_);
+    const std::string search_space_file_path = getILSSearchSpaceFilePath_(worker_id);
+    if (worker_id == 0) {
+        search_space_file_ = search_space_file_path;
     }
 
-    writeILSParameterOptionsToFile(myfile);
-    writeILSForbiddenOptionsToFile(myfile);
+    ensureParentDirectoryForFile(search_space_file_path);
+    std::ofstream myfile(search_space_file_path);
+    if (!myfile.is_open()) {
+        throw std::runtime_error("Error opening ILS search space file for writing: " + search_space_file_path);
+    }
+
+    writeILSParameterOptionsToFile(myfile, worker_id);
+    writeILSForbiddenOptionsToFile(myfile, worker_id);
     writeILSConditionalCplexOptionsToFile(myfile);
-    writeILSInfoToFile(myfile);
+    writeILSInfoToFile(myfile, worker_id);
 
     myfile.close();
 
-    logger_.info("ILS search space file written: ", search_space_file_);
+    logger_.info("ILS search space file written: ", search_space_file_path);
 }
 
 std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalMemory_(
@@ -824,7 +850,12 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
         setMipStartFile();
     }
 
-    writeILSSearchSpaceFile();
+    writeILSSearchSpaceFile(0);
+    if (random_worker_initial_configs_) {
+        for (int worker_id = 1; worker_id < nb_workers_; ++worker_id) {
+            writeILSSearchSpaceFile(worker_id);
+        }
+    }
 
 #ifdef USE_MPI
     launchLocalSearchWorkers();
@@ -1024,7 +1055,10 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     int nb_workers = 0;
     MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
     Logger worker_logger(Verbosity::Debug, std::cout);
-    std::string search_space_file = ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
+    const std::string search_space_file =
+        random_worker_initial_configs_ && worker_id_ > 0
+            ? ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt"
+            : ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
     if (mip_start_ && worker_id_ == 1 && iteration_ > 1) {
         mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
         worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);

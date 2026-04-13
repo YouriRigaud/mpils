@@ -42,6 +42,7 @@ struct TunerOptions {
     std::optional<int> number_of_evaluations = std::nullopt;
     int max_iterations = 15;
     bool enable_mip_starts = true;
+    bool random_worker_initial_configs = true;
     ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict;
     ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast;
     double expansion_max_deviation = std::numeric_limits<double>::max();
@@ -72,6 +73,8 @@ void printHelp(const char* program_name) {
     std::cout << "  --exploration-only              Stop after the exploration phase" << std::endl;
     std::cout << "  --enable-mip-starts             Enable MIP starts during exploration when applicable" << std::endl;
     std::cout << "  --disable-mip-starts            Disable MIP starts during exploration" << std::endl;
+    std::cout << "  --random-worker-initial-configs Enable per-worker random initial configs for MPI ILS exploration" << std::endl;
+    std::cout << "  --no-random-worker-initial-configs Disable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << std::endl;
     std::cout << "If instance_file is provided as a positional argument, it overrides the default instance path." << std::endl;
 }
@@ -181,6 +184,10 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             options.enable_mip_starts = true;
         } else if (std::strcmp(argv[i], "--disable-mip-starts") == 0) {
             options.enable_mip_starts = false;
+        } else if (std::strcmp(argv[i], "--random-worker-initial-configs") == 0) {
+            options.random_worker_initial_configs = true;
+        } else if (std::strcmp(argv[i], "--no-random-worker-initial-configs") == 0) {
+            options.random_worker_initial_configs = false;
         } else if (std::strcmp(argv[i], "--working-dir") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --working-dir");
@@ -220,6 +227,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Expansion max deviation: " << options.expansion_max_deviation << std::endl;
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
+    std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
     std::cout << "Number of evaluations: ";
     if (options.number_of_evaluations.has_value()) {
         std::cout << options.number_of_evaluations.value() << std::endl;
@@ -256,6 +264,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.number_of_evaluations,
         options.max_iterations,
         options.enable_mip_starts,
+        options.random_worker_initial_configs,
         options.expansion_select_rule,
         options.expansion_value_strategy,
         options.expansion_max_deviation
@@ -287,7 +296,7 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
