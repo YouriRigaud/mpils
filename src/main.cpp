@@ -6,6 +6,7 @@
 #include "../include/tuner.h"
 #include "../include/tuner_memory.h"
 #include "../include/globaltimer.h"
+#include "../include/solver_time_mode.h"
 #include "../include/tuning_objective.h"
 #include "../include/filesystem_utils.h"
 #include "../include/working_directory.h"
@@ -33,6 +34,7 @@ struct TunerOptions {
     int nb_parameter_to_evaluate_expansion = 10;
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;
+    SolverTimeMode solver_time_mode = SolverTimeMode::Seconds;
     int nb_workers = 1;
     bool use_shared_cache = false;
     bool exploration_only = false;
@@ -60,6 +62,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --expansion-parameter-budget N  Set the number of residual parameters evaluated in expansion" << std::endl;
     std::cout << "  --solver-threads N              Set the number of solver threads" << std::endl;
     std::cout << "  --solver-time SECONDS           Set the cutoff time for each solver run" << std::endl;
+    std::cout << "  --solver-time-mode MODE         Set solver time budget mode (seconds or ticks)" << std::endl;
     std::cout << "  --local-search-engine NAME      Set the exploration backend (iterated_local_search or paramils)" << std::endl;
     std::cout << "  --seed N                        Set the base random seed" << std::endl;
     std::cout << "  --tuning-objective NAME         Set the tuning objective (gap or upper_bound)" << std::endl;
@@ -140,6 +143,11 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("Missing value for --solver-time");
             }
             options.cutoff_solver_time = std::stod(argv[++i]);
+        } else if (std::strcmp(argv[i], "--solver-time-mode") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-time-mode");
+            }
+            options.solver_time_mode = parseSolverTimeMode(argv[++i]);
         } else if (std::strcmp(argv[i], "--tuning-objective") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --tuning-objective");
@@ -202,6 +210,16 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
     }
 }
 
+void validateTunerOptions(const TunerOptions& options) {
+    if (options.local_search_backend == LocalSearchBackend::ParamILS &&
+        options.solver_time_mode == SolverTimeMode::Ticks) {
+        throw std::runtime_error(
+            "The ParamILS backend does not support '--solver-time-mode ticks'. "
+            "Use '--solver-time-mode seconds' or switch to the iterated_local_search backend."
+        );
+    }
+}
+
 void writeParamILSInstanceFile(const std::string& filepath, const std::string& instance_file) {
     ensureParentDirectoryForFile(filepath);
     std::ofstream myfile;
@@ -228,6 +246,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
     std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
+    std::cout << "Solver time mode: " << solverTimeModeToString(options.solver_time_mode) << std::endl;
     std::cout << "Number of evaluations: ";
     if (options.number_of_evaluations.has_value()) {
         std::cout << options.number_of_evaluations.value() << std::endl;
@@ -255,6 +274,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.nb_parameter_to_evaluate_expansion,
         options.nb_threads_solver,
         options.cutoff_solver_time,
+        options.solver_time_mode,
         options.nb_workers,
         options.use_shared_cache,
         options.exploration_only,
@@ -296,34 +316,39 @@ void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) 
     // init a clock to measure total tuning time
     GlobalTimer::start();
     std::cout << "Worker process " << world_rank << " started." << std::endl;
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.solver_time_mode, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
     worker.run();
     std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
 #endif
 
 int main(int argc, char** argv) {
-
-    TunerOptions options;
-    getTunerOptions(argc, argv, options);
-    setTunerWorkingDirectory(options.tuner_dir);
+    try {
+        TunerOptions options;
+        getTunerOptions(argc, argv, options);
+        validateTunerOptions(options);
+        setTunerWorkingDirectory(options.tuner_dir);
 
 #ifdef USE_MPI
-    MPI_Init(&argc, &argv);
-    int world_rank;
-    int world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    options.nb_workers = world_size;
-    if (world_rank == 0) {
-        masterProcess(argc, argv, options);
-    } else {
-        workerProcess(argc, argv, world_rank, options);
-    }
-    MPI_Finalize();
+        MPI_Init(&argc, &argv);
+        int world_rank;
+        int world_size;
+        MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+        options.nb_workers = world_size;
+        if (world_rank == 0) {
+            masterProcess(argc, argv, options);
+        } else {
+            workerProcess(argc, argv, world_rank, options);
+        }
+        MPI_Finalize();
 #else
-    masterProcess(argc, argv, options);
+        masterProcess(argc, argv, options);
 #endif
 
-    return 0;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 }

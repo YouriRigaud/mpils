@@ -317,6 +317,7 @@ void Worker::runExplorationPhase() {
                 nb_evaluations_,
                 nb_threads_solver_,
                 cutoff_solver_time_,
+                solver_time_mode_,
                 instance_file_,
                 solver_log_file_,
                 tuning_objective_,
@@ -332,6 +333,7 @@ void Worker::runExplorationPhase() {
                 iteration_,
                 tuning_objective_,
                 base_seed_,
+                solver_time_mode_,
                 use_mip_start,
                 use_shared_cache_,
                 random_worker_initial_configs_
@@ -349,7 +351,7 @@ void Worker::runExpansionPhase() {
     std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
     std::cout << "Worker " << worker_id_ << " will use solver log file: " << solver_log_file_worker << std::endl;
     // Implementation of expansion phase logic
-    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_, tuning_objective_));
+    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, tuning_objective_));
     expansion_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state

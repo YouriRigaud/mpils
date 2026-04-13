@@ -39,8 +39,12 @@ void CPLEXSolver::solve() {
     
         // Set number of threads
         cplex.setParam(IloCplex::Param::Threads, nb_threads_);
-        // Set time limit
-        cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
+        // Set the selected time-budget mode.
+        if (solver_time_mode_ == SolverTimeMode::Ticks) {
+            cplex.setParam(IloCplex::Param::DetTimeLimit, cutoff_solver_time_);
+        } else {
+            cplex.setParam(IloCplex::Param::TimeLimit, cutoff_solver_time_);
+        }
        
         // Set mip start
         if (!mip_start_from_file_.empty()) {

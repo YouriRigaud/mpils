@@ -134,6 +134,7 @@ void Exploration::run() {
                 iteration_,
                 nb_threads_solver_,
                 cutoff_solver_time_,
+                solver_time_mode_,
                 nb_workers_,
                 use_shared_cache_,
                 base_seed_,
@@ -155,6 +156,7 @@ void Exploration::run() {
                 iteration_,
                 nb_threads_solver_,
                 cutoff_solver_time_,
+                solver_time_mode_,
                 nb_workers_,
                 base_seed_,
                 tuning_objective_,
@@ -177,6 +179,7 @@ void Exploration::run() {
             iteration_,
             nb_threads_solver_,
             cutoff_solver_time_,
+            solver_time_mode_,
             nb_workers_,
             use_shared_cache_,
             base_seed_,
@@ -585,7 +588,7 @@ void LocalSearchEngine::setMipStartFile() {
     best_config.generateConfigFile(config_path);
     std::string mip_void = ""; // We do not want to use a mip start file for the solver, we just want to generate it with cplex, so we give it an empty file that does not exist, so it does not use it but it generates it
     // Call cplex on the best configuration found so far to generate the mip start file
-    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, mip_void, mip_start_file_, tuning_objective_);
+    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, mip_void, mip_start_file_, tuning_objective_);
     solver.solve();
 
     if (!std::filesystem::exists(mip_start_file_)) {
@@ -880,6 +883,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.mip_start_file = std::nullopt;
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
+    ils_options.solver_time_mode = solver_time_mode_;
     ils_options.tuning_objective = tuning_objective_;
 
     ils_ = std::make_unique<IteratedLocalSearch>(logger_, ils_options);
@@ -1085,6 +1089,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     }
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
+    ils_options.solver_time_mode = solver_time_mode_;
     ils_options.tuning_objective = tuning_objective_;
 
     IteratedLocalSearch ils(worker_logger, ils_options);

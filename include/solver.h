@@ -6,8 +6,9 @@
 #ifndef SOLVER_H
 #define SOLVER_H
 
-#include "tuning_objective.h"
 #include "logger.h"
+#include "solver_time_mode.h"
+#include "tuning_objective.h"
 
 #include <limits>
 #include <optional>
@@ -21,42 +22,46 @@ class Solver {
         std::string log_file_;      // Log file for solver output
         int nb_threads_;            // Number of threads for the solver
         double cutoff_solver_time_;   // Cutoff time for the solver
+        SolverTimeMode solver_time_mode_;
         std::string mip_start_from_file_; // mip start file for the solver (optional)
         std::string produce_mip_start_file_; // mip start file produced by the solver (optional)
         TuningObjective tuning_objective_;
 
     public:
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, TuningObjective tuning_objective = TuningObjective::Gap)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode = SolverTimeMode::Seconds, TuningObjective tuning_objective = TuningObjective::Gap)
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
               log_file_(log_file),
               nb_threads_(nb_threads),
               cutoff_solver_time_(cutoff_solver_time),
+              solver_time_mode_(solver_time_mode),
               mip_start_from_file_(""),
               produce_mip_start_file_(""),
               tuning_objective_(tuning_objective)
         {}
 
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, std::string& mip_start_from_file, TuningObjective tuning_objective = TuningObjective::Gap)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, TuningObjective tuning_objective = TuningObjective::Gap)
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
               log_file_(log_file),
               nb_threads_(nb_threads),
               cutoff_solver_time_(cutoff_solver_time),
+              solver_time_mode_(solver_time_mode),
               mip_start_from_file_(mip_start_from_file),
               produce_mip_start_file_(""),
               tuning_objective_(tuning_objective)
         {}
 
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, std::string& mip_start_from_file, std::string& produce_mip_start_file, TuningObjective tuning_objective = TuningObjective::Gap)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, std::string& produce_mip_start_file, TuningObjective tuning_objective = TuningObjective::Gap)
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
               log_file_(log_file),
               nb_threads_(nb_threads),
               cutoff_solver_time_(cutoff_solver_time),
+              solver_time_mode_(solver_time_mode),
               mip_start_from_file_(mip_start_from_file),
               produce_mip_start_file_(produce_mip_start_file),
               tuning_objective_(tuning_objective)
@@ -88,8 +93,9 @@ class CPLEXSolver : public Solver {
             const std::string& log_file,
             int nb_threads,
             double cutoff_solver_time,
+            SolverTimeMode solver_time_mode = SolverTimeMode::Seconds,
             TuningObjective tuning_objective = TuningObjective::Gap
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, tuning_objective),
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, tuning_objective),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),
@@ -103,9 +109,10 @@ class CPLEXSolver : public Solver {
             const std::string& log_file,
             int nb_threads,
             double cutoff_solver_time,
+            SolverTimeMode solver_time_mode,
             std::string& mip_start_from_file,
             TuningObjective tuning_objective = TuningObjective::Gap
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, mip_start_from_file, tuning_objective),
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, tuning_objective),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),
@@ -119,10 +126,11 @@ class CPLEXSolver : public Solver {
             const std::string& log_file,
             int nb_threads,
             double cutoff_solver_time,
+            SolverTimeMode solver_time_mode,
             std::string& mip_start_from_file,
             std::string& produce_mip_start_file,
             TuningObjective tuning_objective = TuningObjective::Gap
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, mip_start_from_file, produce_mip_start_file, tuning_objective),
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, produce_mip_start_file, tuning_objective),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),

@@ -7,6 +7,7 @@
 #define ITERATED_LOCAL_SEARCH_H
 
 #include "tuning_objective.h"
+#include "solver_time_mode.h"
 #include "working_directory.h"
 #include "logger.h"
 #include "tuner_memory.h"
@@ -239,6 +240,7 @@ class IteratedLocalSearch {
 
             int nb_threads_solver = 2;
             double cutoff_solver_time = 15.0;
+            SolverTimeMode solver_time_mode = SolverTimeMode::Seconds;
             TuningObjective tuning_objective = TuningObjective::Gap;
         };
 

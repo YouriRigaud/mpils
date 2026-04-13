@@ -7,6 +7,7 @@
 #define EXPANSION_H
 
 #include "tuning_objective.h"
+#include "solver_time_mode.h"
 #include "logger.h"
 #include "tuner_memory.h"
 #include "parameter_space.h"
@@ -116,6 +117,7 @@ class Expansion {
         int nb_parameter_to_evaluate_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        SolverTimeMode solver_time_mode_;
         TuningObjective tuning_objective_;
         ExpansionSelectRule select_rule_;
         ExpansionValueStrategy value_strategy_;
@@ -184,6 +186,7 @@ class Expansion {
             int nb_parameter_to_evaluate,
             int nb_threads_solver,
             double cutoff_solver_time,
+            SolverTimeMode solver_time_mode,
             TuningObjective tuning_objective,
             ExpansionSelectRule select_rule,
             ExpansionValueStrategy value_strategy,
@@ -198,6 +201,7 @@ class Expansion {
            nb_parameter_to_evaluate_(nb_parameter_to_evaluate),
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
+           solver_time_mode_(solver_time_mode),
            tuning_objective_(tuning_objective),
            select_rule_(select_rule),
            value_strategy_(value_strategy),
@@ -216,6 +220,7 @@ class ExpansionWorker {
         std::string solver_log_file_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        SolverTimeMode solver_time_mode_;
         TuningObjective tuning_objective_;
 
         std::vector<std::pair<int, std::string>> configs_to_evaluate_; // Pair of (config_id, config_file_path)
@@ -226,8 +231,8 @@ class ExpansionWorker {
         void sendConfigsResultToMaster();
 
     public:
-        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, TuningObjective tuning_objective)
-            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), tuning_objective_(tuning_objective) {}
+        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, TuningObjective tuning_objective)
+            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), tuning_objective_(tuning_objective) {}
 
         void run();
 };

@@ -930,6 +930,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
             log_file_path,
             options_.nb_threads_solver,
             options_.cutoff_solver_time,
+            options_.solver_time_mode,
             mip_start_file,
             options_.tuning_objective
         );
@@ -946,6 +947,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
             log_file_path,
             options_.nb_threads_solver,
             options_.cutoff_solver_time,
+            options_.solver_time_mode,
             options_.tuning_objective
         );
         solver.solve();

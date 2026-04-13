@@ -7,6 +7,7 @@
 #define TUNER_H
 
 #include "tuning_objective.h"
+#include "solver_time_mode.h"
 #include "local_search_backend.h"
 #include "logger.h"
 #include "tuner_memory.h"
@@ -36,6 +37,7 @@ class Tuner {
         const int nb_initial_selected_parameters_; ///< Number of parameters to select initially
         const int nb_threads_solver_;              ///< Number of threads for the solver
         const double cutoff_solver_time_;          ///< Cutoff time for each solver run
+        const SolverTimeMode solver_time_mode_;    ///< Whether solver time budget is in seconds or deterministic ticks
         const int nb_workers_;                     ///< Number of worker processes for parallel execution
         const bool use_shared_cache_;              ///< Whether ILS workers should share cached objectives
         const bool exploration_only_;             ///< Whether to stop after one exploration phase
@@ -86,6 +88,7 @@ class Tuner {
             int nb_parameter_to_evaluate_expansion,
             int nb_threads_solver,
             double cutoff_solver_time,
+            SolverTimeMode solver_time_mode,
             int nb_workers,
             bool use_shared_cache,
             bool exploration_only,
@@ -108,6 +111,7 @@ class Tuner {
             nb_initial_selected_parameters_(nb_initial_selected_parameters),
             nb_threads_solver_(nb_threads_solver),
             cutoff_solver_time_(cutoff_solver_time),
+            solver_time_mode_(solver_time_mode),
             nb_workers_(nb_workers),
             use_shared_cache_(use_shared_cache),
             exploration_only_(exploration_only),
@@ -122,8 +126,8 @@ class Tuner {
             expansion_max_deviation_(expansion_max_deviation),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_, random_worker_initial_configs_),
-            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_, random_worker_initial_configs_),
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 
@@ -169,6 +173,7 @@ class Worker {
         std::string solver_log_file_;
         int nb_threads_solver_;
         double cutoff_solver_time_;
+        SolverTimeMode solver_time_mode_;
         bool use_shared_cache_;
         LocalSearchBackend local_search_backend_;
         std::uint32_t base_seed_;
@@ -199,7 +204,7 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts, bool random_worker_initial_configs)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts, bool random_worker_initial_configs)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
@@ -207,6 +212,7 @@ class Worker {
               solver_log_file_(solver_log_file),
               nb_threads_solver_(nb_threads_solver),
               cutoff_solver_time_(cutoff_solver_time),
+              solver_time_mode_(solver_time_mode),
               use_shared_cache_(use_shared_cache),
               local_search_backend_(local_search_backend),
               base_seed_(base_seed),

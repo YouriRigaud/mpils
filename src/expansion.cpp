@@ -277,6 +277,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             solver_log_file_master,
             nb_threads_solver_,
             cutoff_solver_time_,
+            solver_time_mode_,
             tuning_objective_
         );
 
@@ -571,6 +572,7 @@ void ExpansionWorker::evaluateConfigurations() {
             solver_log_file_,
             nb_threads_solver_,
             cutoff_solver_time_,
+            solver_time_mode_,
             tuning_objective_
         );
 
