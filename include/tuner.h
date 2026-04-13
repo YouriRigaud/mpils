@@ -50,6 +50,7 @@ class Tuner {
         const ExpansionSelectRule expansion_select_rule_; ///< Comparison rule used by expansion selection
         const ExpansionValueStrategy expansion_value_strategy_; ///< Value selection strategy used by expansion
         const double expansion_max_deviation_;   ///< Maximum allowed deviation for expansion classification
+        const bool expansion_enable_sequential_early_stop_; ///< Whether sequential expansion may stop early on improvement
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -101,7 +102,8 @@ class Tuner {
             bool random_worker_initial_configs = true,
             ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict,
             ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast,
-            double expansion_max_deviation = std::numeric_limits<double>::max()
+            double expansion_max_deviation = std::numeric_limits<double>::max(),
+            bool expansion_enable_sequential_early_stop = false
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -124,10 +126,11 @@ class Tuner {
             expansion_select_rule_(expansion_select_rule),
             expansion_value_strategy_(expansion_value_strategy),
             expansion_max_deviation_(expansion_max_deviation),
+            expansion_enable_sequential_early_stop_(expansion_enable_sequential_early_stop),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, enable_mip_starts_, random_worker_initial_configs_),
-            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_),
+            expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_, expansion_enable_sequential_early_stop_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
 

@@ -122,6 +122,7 @@ class Expansion {
         ExpansionSelectRule select_rule_;
         ExpansionValueStrategy value_strategy_;
         double max_deviation_;
+        bool enable_sequential_early_stop_;
 
         double best_objective_value_;
 
@@ -190,7 +191,8 @@ class Expansion {
             TuningObjective tuning_objective,
             ExpansionSelectRule select_rule,
             ExpansionValueStrategy value_strategy,
-            double max_deviation
+            double max_deviation,
+            bool enable_sequential_early_stop
         ): logger_(logger),
            memory_(memory),
            parameter_space_(parameter_space),
@@ -205,7 +207,8 @@ class Expansion {
            tuning_objective_(tuning_objective),
            select_rule_(select_rule),
            value_strategy_(value_strategy),
-           max_deviation_(max_deviation)
+           max_deviation_(max_deviation),
+           enable_sequential_early_stop_(enable_sequential_early_stop)
         {}
 
         void run();

@@ -356,6 +356,9 @@ bool Expansion::isInvalidExpansionObjective(double objective_value) const {
 }
 
 bool Expansion::shouldUseSequentialExpansionEarlyStop() const {
+    if (!enable_sequential_early_stop_) {
+        return false;
+    }
 #ifdef USE_MPI
     int world_size = 1;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
