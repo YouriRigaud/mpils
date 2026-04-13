@@ -102,22 +102,39 @@ void Tuner::createWorkingDirectories() {
 }
 
 void Tuner::setAllParametersFlags() {
-    int index = 1;
+    int count_discarded_fixed = 0;
+    int count_selected_tunable = 0;
+    int count_residual_tunable = 0;
+
     for (auto& param : parameter_space_.getParameters()) {
-        if (index <= nb_initial_selected_parameters_) {
+        const bool is_tunable = param.getValues().size() > 1;
+
+        if (!is_tunable) {
+            param.setIsSelected(false);
+            param.setIsTuned(false);
+            param.setIsDiscarded(true);
+            param.setIsResidual(false);
+            count_discarded_fixed++;
+        } else if (count_selected_tunable < nb_initial_selected_parameters_) {
             param.setIsSelected(true);
             param.setIsTuned(false);
             param.setIsDiscarded(false);
             param.setIsResidual(false);
+            count_selected_tunable++;
         } else {
             param.setIsSelected(false);
             param.setIsTuned(false);
             param.setIsDiscarded(false);
             param.setIsResidual(true);
+            count_residual_tunable++;
         }
-        index++;
     }
-    logger_.info("Set all parameter flags finished.");
+
+    logger_.info(
+        "Set all parameter flags finished. Fixed discarded at setup: ", count_discarded_fixed,
+        ", Tunable initially selected: ", count_selected_tunable,
+        ", Tunable residual: ", count_residual_tunable
+    );
 }
 
 void Tuner::setDefaultConfiguration() {

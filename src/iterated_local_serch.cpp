@@ -20,6 +20,16 @@
 #include <mpi.h>
 #endif
 
+namespace {
+
+class EvaluationBudgetExhausted final : public std::runtime_error {
+    public:
+        EvaluationBudgetExhausted()
+            : std::runtime_error("Evaluation budget exhausted while trying to evaluate a new configuration.") {}
+};
+
+} // namespace
+
 // ============================================================
 // ReplicatedObjectiveCache implementation
 // ============================================================
@@ -869,7 +879,7 @@ EvaluationRecord IteratedLocalSearch::getOrEvaluate_(const Configuration& config
     }
 
     if (nb_evaluations_ >= options_.evaluation_budget) {
-        throw std::runtime_error("Evaluation budget exhausted while trying to evaluate a new configuration.");
+        throw EvaluationBudgetExhausted();
     }
 
     EvaluationRecord record = runSolverAndCreateRecord_(config);
@@ -1079,40 +1089,45 @@ void IteratedLocalSearch::run() {
 
     run_start_time_ = std::chrono::steady_clock::now();
 
-    createSearchSpace_();
-    checkMipStartFile_();
-    initializeFromSearchSpace_();
-    injectInitialConfigurationIfAlreadyEvaluated_();
-    computeInitialConfiguration_();
-    computeRandomSampling_();
+    try {
+        createSearchSpace_();
+        checkMipStartFile_();
+        initializeFromSearchSpace_();
+        injectInitialConfigurationIfAlreadyEvaluated_();
+        computeInitialConfiguration_();
+        computeRandomSampling_();
 
-    current_configuration_ = iterativeFirstImprovement_(current_configuration_);
-    updateIncumbentIfNeeded_(current_configuration_);
+        current_configuration_ = iterativeFirstImprovement_(current_configuration_);
+        updateIncumbentIfNeeded_(current_configuration_);
 
-    std::bernoulli_distribution restart_distribution(options_.restart_probability);
+        std::bernoulli_distribution restart_distribution(options_.restart_probability);
 
-    while (!terminationCriterionMet_()) {
-        if (options_.use_shared_cache) {
-            shared_objective_cache_.pollIncoming();
+        while (!terminationCriterionMet_()) {
+            if (options_.use_shared_cache) {
+                shared_objective_cache_.pollIncoming();
+            }
+            ++current_iteration_;
+            Configuration candidate;
+
+            if (restart_distribution(rng_)) {
+                logger_.info("Restarting from a random configuration...");
+                candidate = search_space_.sampleRandomConfiguration(rng_, options_.use_mip_starts);
+            } else {
+                logger_.info("Applying perturbation to current configuration...");
+                candidate = perturb_(current_configuration_);
+            }
+
+            candidate = iterativeFirstImprovement_(candidate);
+
+            if (better_(candidate, current_configuration_)) {
+                current_configuration_ = candidate;
+            }
+
+            updateIncumbentIfNeeded_(candidate);
         }
-        ++current_iteration_;
-        Configuration candidate;
-
-        if (restart_distribution(rng_)) {
-            logger_.info("Restarting from a random configuration...");
-            candidate = search_space_.sampleRandomConfiguration(rng_, options_.use_mip_starts);
-        } else {
-            logger_.info("Applying perturbation to current configuration...");
-            candidate = perturb_(current_configuration_);
-        }
-
-        candidate = iterativeFirstImprovement_(candidate);
-
-        if (better_(candidate, current_configuration_)) {
-            current_configuration_ = candidate;
-        }
-
-        updateIncumbentIfNeeded_(candidate);
+    } catch (const EvaluationBudgetExhausted&) {
+        stop_condition_met_ = true;
+        logger_.info("Stopping local search because the evaluation budget has been exhausted.");
     }
 
     if (options_.use_shared_cache) {

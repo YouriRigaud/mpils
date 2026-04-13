@@ -110,9 +110,9 @@ void Exploration::run() {
         if (nb_evaluations > 30) {
             nb_evaluations = 30;
         }
-        //if (nb_evaluations < 5) {
-        //    nb_evaluations = 5;
-        //}
+        if (nb_evaluations < 5) {
+            nb_evaluations = 5;
+        }
     }
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
