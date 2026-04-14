@@ -122,7 +122,7 @@ class Expansion {
         ExpansionSelectRule select_rule_;
         ExpansionValueStrategy value_strategy_;
         double max_deviation_;
-        bool enable_sequential_early_stop_;
+        bool enable_early_stop_;
 
         double best_objective_value_;
 
@@ -138,9 +138,9 @@ class Expansion {
 
         bool isInvalidExpansionObjective(double objective_value) const;
 
-        bool shouldUseSequentialExpansionEarlyStop() const;
+        bool shouldUseExpansionEarlyStop() const;
 
-        bool isSequentialExpansionImprovement(double objective_value) const;
+        bool isExpansionImprovement(double objective_value) const;
 
         std::vector<double> extractValidObjectives(const EvaluateParameterOutput& eval_output, int& invalid_count) const;
 
@@ -192,7 +192,7 @@ class Expansion {
             ExpansionSelectRule select_rule,
             ExpansionValueStrategy value_strategy,
             double max_deviation,
-            bool enable_sequential_early_stop
+            bool enable_early_stop
         ): logger_(logger),
            memory_(memory),
            parameter_space_(parameter_space),
@@ -208,7 +208,7 @@ class Expansion {
            select_rule_(select_rule),
            value_strategy_(value_strategy),
            max_deviation_(max_deviation),
-           enable_sequential_early_stop_(enable_sequential_early_stop)
+           enable_early_stop_(enable_early_stop)
         {}
 
         void run();
@@ -225,6 +225,8 @@ class ExpansionWorker {
         double cutoff_solver_time_;
         SolverTimeMode solver_time_mode_;
         TuningObjective tuning_objective_;
+        double best_objective_value_;
+        bool enable_early_stop_;
 
         std::vector<std::pair<int, std::string>> configs_to_evaluate_; // Pair of (config_id, config_file_path)
         std::vector<ExpansionEvaluationResult> evaluation_results_;
@@ -232,10 +234,11 @@ class ExpansionWorker {
         void receiveConfigsToEvaluateFromMaster();
         void evaluateConfigurations();
         void sendConfigsResultToMaster();
+        bool isExpansionImprovement(double objective_value) const;
 
     public:
-        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, TuningObjective tuning_objective)
-            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), tuning_objective_(tuning_objective) {}
+        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, TuningObjective tuning_objective, double best_objective_value, bool enable_early_stop)
+            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), tuning_objective_(tuning_objective), best_objective_value_(best_objective_value), enable_early_stop_(enable_early_stop) {}
 
         void run();
 };

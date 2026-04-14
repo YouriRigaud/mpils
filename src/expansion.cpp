@@ -237,7 +237,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     for (size_t i = 0; i < configuration_files_outputs.size(); ++i) {
         configs_to_evaluate.emplace_back(i, configuration_files_outputs[i].config_file_path);
     }
-    const bool use_sequential_early_stop = shouldUseSequentialExpansionEarlyStop();
+    const bool use_expansion_early_stop = shouldUseExpansionEarlyStop();
 #ifdef USE_MPI
     // Split configs_to_evaluate between master and workers
     int nb_workers = 1; // Default to 1 for non-MPI
@@ -266,10 +266,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 #endif
     // Master evaluates its configurations
     std::string solver_log_file_master = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_0";
-    for (const auto& config_pair : master_configs_to_evaluate) {
-        int config_id = config_pair.first;
-        const std::string& config_file_path = config_pair.second;
-
+    auto evaluate_single_config = [&](int config_id, const std::string& config_file_path) -> double {
         CPLEXSolver solver(
             logger_,
             instance_file_,
@@ -282,7 +279,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         );
 
         solver.solve();
-        double objective_value = solver.getObjectiveValue();
+        const double objective_value = solver.getObjectiveValue();
         std::optional<double> gap = solver.getGap();
         std::optional<double> upper_bound = solver.getUpperBound();
         std::optional<double> lower_bound = solver.getLowerBound();
@@ -291,13 +288,57 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         const auto& create_output = configuration_files_outputs[config_id];
         addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, gap, upper_bound, lower_bound, evaluated_time, 0, evaluation_outputs);
 
-        if (use_sequential_early_stop && isSequentialExpansionImprovement(objective_value)) {
-            logger_.info(
-                "Sequential expansion early stop triggered by parameter ", create_output.parameter.getName(),
-                " with objective value ", objective_value,
-                ". Remaining not-yet-evaluated parameters stay residual."
-            );
-            break;
+        return objective_value;
+    };
+
+#ifdef USE_MPI
+    if (use_expansion_early_stop && nb_workers > 1) {
+        int local_count = static_cast<int>(master_configs_to_evaluate.size());
+        int max_configs_per_rank = 0;
+        MPI_Allreduce(&local_count, &max_configs_per_rank, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+
+        for (int round = 0; round < max_configs_per_rank; ++round) {
+            int local_found_improvement = 0;
+
+            if (round < local_count) {
+                const auto& config_pair = master_configs_to_evaluate[round];
+                const double objective_value = evaluate_single_config(config_pair.first, config_pair.second);
+
+                if (isExpansionImprovement(objective_value)) {
+                    local_found_improvement = 1;
+                    const auto& create_output = configuration_files_outputs[config_pair.first];
+                    logger_.info(
+                        "Expansion early stop improvement found on master by parameter ", create_output.parameter.getName(),
+                        " with objective value ", objective_value, "."
+                    );
+                }
+            }
+
+            int global_early_stop = 0;
+            MPI_Allreduce(&local_found_improvement, &global_early_stop, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+            if (global_early_stop != 0) {
+                logger_.info(
+                    "Expansion early stop activated in MPI after ", evaluation_outputs.size(),
+                    " master-side evaluation(s). Remaining not-yet-evaluated parameters stay residual."
+                );
+                break;
+            }
+        }
+    } else
+#endif
+    {
+        for (const auto& config_pair : master_configs_to_evaluate) {
+            const double objective_value = evaluate_single_config(config_pair.first, config_pair.second);
+
+            if (use_expansion_early_stop && isExpansionImprovement(objective_value)) {
+                const auto& create_output = configuration_files_outputs[config_pair.first];
+                logger_.info(
+                    "Expansion early stop triggered by parameter ", create_output.parameter.getName(),
+                    " with objective value ", objective_value,
+                    ". Remaining not-yet-evaluated parameters stay residual."
+                );
+                break;
+            }
         }
     }
 #ifdef USE_MPI
@@ -355,20 +396,14 @@ bool Expansion::isInvalidExpansionObjective(double objective_value) const {
     return !std::isfinite(objective_value) || objective_value == std::numeric_limits<double>::max();
 }
 
-bool Expansion::shouldUseSequentialExpansionEarlyStop() const {
-    if (!enable_sequential_early_stop_) {
+bool Expansion::shouldUseExpansionEarlyStop() const {
+    if (!enable_early_stop_) {
         return false;
     }
-#ifdef USE_MPI
-    int world_size = 1;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    return world_size == 1;
-#else
     return true;
-#endif
 }
 
-bool Expansion::isSequentialExpansionImprovement(double objective_value) const {
+bool Expansion::isExpansionImprovement(double objective_value) const {
     return objective_value < best_objective_value_;
 }
 
@@ -562,12 +597,13 @@ void ExpansionWorker::receiveConfigsToEvaluateFromMaster() {
     }
 }
 
+bool ExpansionWorker::isExpansionImprovement(double objective_value) const {
+    return objective_value < best_objective_value_;
+}
+
 void ExpansionWorker::evaluateConfigurations() {
     Logger logger(Verbosity::Normal, std::cout);
-    for (const auto& config_pair : configs_to_evaluate_) {
-        int config_id = config_pair.first;
-        const std::string& config_file_path = config_pair.second;
-
+    auto evaluate_single_config = [&](int config_id, const std::string& config_file_path) -> double {
         CPLEXSolver solver(
             logger,
             instance_file_,
@@ -587,6 +623,44 @@ void ExpansionWorker::evaluateConfigurations() {
         int elapsed_time = GlobalTimer::elapsedSeconds();
 
         evaluation_results_.push_back({config_id, objective_value, elapsed_time, gap, upper_bound, lower_bound});
+        return objective_value;
+    };
+
+    int world_size = 1;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    if (enable_early_stop_ && world_size > 1) {
+        int local_count = static_cast<int>(configs_to_evaluate_.size());
+        int max_configs_per_rank = 0;
+        MPI_Allreduce(&local_count, &max_configs_per_rank, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+
+        for (int round = 0; round < max_configs_per_rank; ++round) {
+            int local_found_improvement = 0;
+
+            if (round < local_count) {
+                const auto& config_pair = configs_to_evaluate_[round];
+                const double objective_value = evaluate_single_config(config_pair.first, config_pair.second);
+
+                if (isExpansionImprovement(objective_value)) {
+                    local_found_improvement = 1;
+                    std::cout << "Expansion Worker " << worker_id_
+                              << " found an improving configuration with objective value "
+                              << objective_value << "." << std::endl;
+                }
+            }
+
+            int global_early_stop = 0;
+            MPI_Allreduce(&local_found_improvement, &global_early_stop, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
+            if (global_early_stop != 0) {
+                std::cout << "Expansion Worker " << worker_id_
+                          << " stopping early after global MPI expansion stop was activated." << std::endl;
+                break;
+            }
+        }
+        return;
+    }
+
+    for (const auto& config_pair : configs_to_evaluate_) {
+        evaluate_single_config(config_pair.first, config_pair.second);
     }
 }
 
@@ -629,9 +703,12 @@ void Expansion::launchExpansionWorkers() {
     logger_.info("Launching Expansion Workers via MPI...");
     // Implementation to launch expansion workers using MPI
     // Broadcast to give all workers worker_step = 2 and iteration_
-    WorkerOrder order;
+    WorkerOrder order{};
     order.step = 2; // expansion step
     order.iteration = iteration_;
+    order.nb_evaluations = 0;
+    order.expansion_best_objective_value = best_objective_value_;
+    order.expansion_enable_early_stop = enable_early_stop_ ? 1 : 0;
     MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
     logger_.info("Expansion Workers launched.");
 }

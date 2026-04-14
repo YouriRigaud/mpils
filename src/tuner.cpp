@@ -270,7 +270,7 @@ void Tuner::run() {
 #ifdef USE_MPI
 void Tuner::sendStopOrderToWorkers() {
     logger_.info("Sending stop order to all worker processes.");
-    WorkerOrder stop_order;
+    WorkerOrder stop_order{};
     stop_order.step = 3; // 3 indicates stop
     stop_order.iteration = iteration_;
     MPI_Bcast(&stop_order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
@@ -302,6 +302,10 @@ void Worker::receiveOrderFromMaster() {
     iteration_ = order.iteration;
     if (worker_step_ == 1) {
         nb_evaluations_ = order.nb_evaluations;
+    }
+    if (worker_step_ == 2) {
+        expansion_best_objective_value_ = order.expansion_best_objective_value;
+        expansion_enable_early_stop_ = order.expansion_enable_early_stop != 0;
     }
     std::cout << "Worker " << worker_id_ << " received order for step " << worker_step_ << "." << std::endl;
 }
@@ -351,7 +355,18 @@ void Worker::runExpansionPhase() {
     std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
     std::cout << "Worker " << worker_id_ << " will use solver log file: " << solver_log_file_worker << std::endl;
     // Implementation of expansion phase logic
-    setExpansionWorker(std::make_unique<ExpansionWorker>(worker_id_, iteration_, instance_file_, solver_log_file_worker, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, tuning_objective_));
+    setExpansionWorker(std::make_unique<ExpansionWorker>(
+        worker_id_,
+        iteration_,
+        instance_file_,
+        solver_log_file_worker,
+        nb_threads_solver_,
+        cutoff_solver_time_,
+        solver_time_mode_,
+        tuning_objective_,
+        expansion_best_objective_value_,
+        expansion_enable_early_stop_
+    ));
     expansion_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state

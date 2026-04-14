@@ -1040,10 +1040,12 @@ void LocalSearchEngine::launchLocalSearchWorkers() {
     logger_.info("Launching Local Search Workers via MPI...");
     // Implementation to launch local search workers using MPI
     // Broadcast to give all workers worker_step = 1 and iteration_
-    WorkerOrder order;
+    WorkerOrder order{};
     order.step = 1; // exploration step
     order.iteration = iteration_;
     order.nb_evaluations = max_evaluations_;
+    order.expansion_best_objective_value = 0.0;
+    order.expansion_enable_early_stop = 0;
     MPI_Bcast(&order, sizeof(WorkerOrder), MPI_BYTE, 0, MPI_COMM_WORLD);
     logger_.info("Local Search Workers launched.");
 }

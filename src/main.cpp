@@ -48,7 +48,7 @@ struct TunerOptions {
     ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict;
     ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast;
     double expansion_max_deviation = std::numeric_limits<double>::max();
-    bool expansion_enable_sequential_early_stop = false;
+    bool expansion_enable_early_stop = true;
 };
 
 void printHelp(const char* program_name) {
@@ -72,8 +72,8 @@ void printHelp(const char* program_name) {
     std::cout << "  --expansion-select-rule MODE    Set expansion selection comparison (strict or inclusive)" << std::endl;
     std::cout << "  --expansion-value-strategy MODE Set expansion value evaluation strategy (all or first_last)" << std::endl;
     std::cout << "  --expansion-max-deviation VALUE Set the maximum allowed RMS deviation during expansion classification" << std::endl;
-    std::cout << "  --expansion-sequential-early-stop    Enable sequential-only early stop in expansion" << std::endl;
-    std::cout << "  --no-expansion-sequential-early-stop Disable sequential-only early stop in expansion" << std::endl;
+    std::cout << "  --expansion-early-stop          Enable early stop in expansion" << std::endl;
+    std::cout << "  --no-expansion-early-stop       Disable early stop in expansion" << std::endl;
     std::cout << "  --shared-cache                  Enable shared cache for ILS workers" << std::endl;
     std::cout << "  --no-shared-cache               Disable shared cache for ILS workers" << std::endl;
     std::cout << "  --exploration-only              Stop after the exploration phase" << std::endl;
@@ -191,10 +191,10 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             if (options.expansion_max_deviation < 0.0) {
                 throw std::runtime_error("--expansion-max-deviation must be non-negative");
             }
-        } else if (std::strcmp(argv[i], "--expansion-sequential-early-stop") == 0) {
-            options.expansion_enable_sequential_early_stop = true;
-        } else if (std::strcmp(argv[i], "--no-expansion-sequential-early-stop") == 0) {
-            options.expansion_enable_sequential_early_stop = false;
+        } else if (std::strcmp(argv[i], "--expansion-early-stop") == 0) {
+            options.expansion_enable_early_stop = true;
+        } else if (std::strcmp(argv[i], "--no-expansion-early-stop") == 0) {
+            options.expansion_enable_early_stop = false;
         } else if (std::strcmp(argv[i], "--enable-mip-starts") == 0) {
             options.enable_mip_starts = true;
         } else if (std::strcmp(argv[i], "--disable-mip-starts") == 0) {
@@ -250,7 +250,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Expansion select rule: " << expansionSelectRuleToString(options.expansion_select_rule) << std::endl;
     std::cout << "Expansion value strategy: " << expansionValueStrategyToString(options.expansion_value_strategy) << std::endl;
     std::cout << "Expansion max deviation: " << options.expansion_max_deviation << std::endl;
-    std::cout << "Expansion sequential early stop: " << (options.expansion_enable_sequential_early_stop ? "enabled" : "disabled") << std::endl;
+    std::cout << "Expansion early stop: " << (options.expansion_enable_early_stop ? "enabled" : "disabled") << std::endl;
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
     std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
@@ -296,7 +296,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.expansion_select_rule,
         options.expansion_value_strategy,
         options.expansion_max_deviation,
-        options.expansion_enable_sequential_early_stop
+        options.expansion_enable_early_stop
     );
     
     tuner.setup();
