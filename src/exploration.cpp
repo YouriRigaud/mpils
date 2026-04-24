@@ -34,6 +34,66 @@ std::string buildHistoricalCacheSeedFilePath(const std::string& ils_working_dir,
     return ils_working_dir + "search_space/shared_cache_seed_" + std::to_string(iteration) + ".txt";
 }
 
+std::string buildCurrentMipStartInfoFilePath(const std::string& ils_working_dir, int iteration) {
+    return ils_working_dir + "mip_start/current_mip_start_" + std::to_string(iteration) + ".txt";
+}
+
+struct CurrentMipStartInfo {
+    std::string mip_start_file;
+    std::optional<MipStartId> mip_start_id = std::nullopt;
+    double best_upper_bound = kMaxObjective;
+};
+
+void writeCurrentMipStartInfoFile(
+    const std::string& filename,
+    const std::string& mip_start_file,
+    std::optional<MipStartId> mip_start_id,
+    double best_upper_bound
+) {
+    ensureParentDirectoryForFile(filename);
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Error opening current MIP start info file for writing: " + filename);
+    }
+    file << "MipStartFile=" << mip_start_file << std::endl;
+    if (mip_start_id.has_value()) {
+        file << "MipStartId=" << mip_start_id.value() << std::endl;
+    }
+    file << "BestUpperBound=" << best_upper_bound << std::endl;
+}
+
+CurrentMipStartInfo readCurrentMipStartInfoFile(
+    const std::string& filename,
+    Logger& logger
+) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        logger.info("Current MIP start info file not found: ", filename);
+        return {};
+    }
+
+    CurrentMipStartInfo info;
+    std::string line;
+    while (std::getline(file, line)) {
+        const std::size_t eq_pos = line.find('=');
+        if (eq_pos == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = line.substr(0, eq_pos);
+        const std::string value = line.substr(eq_pos + 1);
+        if (key == "MipStartFile") {
+            info.mip_start_file = value;
+        } else if (key == "MipStartId" && !value.empty()) {
+            info.mip_start_id = static_cast<MipStartId>(std::stoull(value));
+        } else if (key == "BestUpperBound" && !value.empty()) {
+            info.best_upper_bound = std::stod(value);
+        }
+    }
+
+    return info;
+}
+
 void writeHistoricalCacheSeedEntriesToFile(
     const std::string& filename,
     const std::vector<CompactSharedCacheSeedEntry>& seeds
@@ -280,15 +340,19 @@ void Exploration::run() {
 std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run() {
     // Implementation of the ParamILS algorithm
     logger_.info("Running ParamILS Engine...");
-    if (mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
-        mip_start_ = true;
+    if (use_mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
+        use_mip_start_ = true;
     } else {
-        mip_start_ = false;
+        use_mip_start_ = false;
     }
-    logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
+    logger_.info("Mip start is ", use_mip_start_ ? "enabled" : "disabled", " for this iteration.");
     
-    if (mip_start_) {
+    if (use_mip_start_) {
         setMipStartFile();
+        if (mip_start_file_.empty()) {
+            use_mip_start_ = false;
+            logger_.info("MIP start use disabled for this iteration because no incumbent MIP start file is available.");
+        }
     }
 
     writeParamILSParameterFiles();
@@ -315,7 +379,7 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int work
 
     for (auto& param : parameter_space_.getParameters()) {
         Value initial_value = initial_configurations_[worker_id].getConfigurationMap().at(param.getName());
-        if (worker_id == 1 && mip_start_ && !mip_start_file_.empty()) { // We use the same initial configuration for worker 1 as worker 0 but with a mip start 
+        if (worker_id == 1 && use_mip_start_ && !mip_start_file_.empty()) { // We use the same initial configuration for worker 1 as worker 0 but with a mip start 
             initial_value = initial_configurations_[0].getConfigurationMap().at(param.getName());
         }
         myfile << param.getName() << " {";
@@ -351,7 +415,7 @@ void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int work
     myfile << "process_mpi { " << worker_id << " } [ " << worker_id << " ]" << std::endl;
     myfile << "iteration { " << iteration_ << " } [ " << iteration_ << " ]" << std::endl;
     
-    if (worker_id == 1 && mip_start_ && !mip_start_file_.empty()) {
+    if (worker_id == 1 && use_mip_start_ && !mip_start_file_.empty()) {
         myfile << "mip_start { " << mip_start_file_ << " } [ " << mip_start_file_ << " ]" << std::endl;
     }
 }
@@ -541,9 +605,9 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
 
         // Record the evaluation result for this configuration
         RecordEvaluationOptions options;
-        if (worker_id == 1 && mip_start_) {
+        if (worker_id == 1 && use_mip_start_) {
             options.mip_start_used = true;
-            options.used_mip_start_id = memory_.getMipStartToUse();
+            options.used_mip_start_id = used_mip_start_id_;
              logger_.info("Using MIP start with id ", options.used_mip_start_id.value(), " for this evaluation of worker ", worker_id, " at iteration ", iteration_, ".");
         } else {
             options.mip_start_used = false;
@@ -656,36 +720,18 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
 }
 
 void LocalSearchEngine::setMipStartFile() {
-    Configuration best_config = memory_.getBestConfiguration() != nullptr ? *memory_.getBestConfiguration() : memory_.getDefaultConfiguration();
-    mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
-    std::string config_path = buildTunerPath("config_for_mip_start/config_mip_start_iteration_" + std::to_string(iteration_) + ".prm");
-    best_config.generateConfigFile(config_path);
-    std::string mip_void = ""; // We do not want to use a mip start file for the solver, we just want to generate it with cplex, so we give it an empty file that does not exist, so it does not use it but it generates it
-    // Call cplex on the best configuration found so far to generate the mip start file
-    CPLEXSolver solver(logger_, instance_file_, config_path, solver_log_file_ + "_mip_start_" + std::to_string(iteration_), nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, mip_void, mip_start_file_, tuning_objective_);
-    solver.solve();
-
-    if (!std::filesystem::exists(mip_start_file_)) {
-        logger_.warn("Expected mip start file not found: ", mip_start_file_);
+    const auto best_mip_start_file = memory_.getBestMipStartFile();
+    const auto best_mip_start_id = memory_.getBestMipStartId();
+    if (!best_mip_start_file.has_value() || !best_mip_start_id.has_value()) {
+        mip_start_file_.clear();
+        used_mip_start_id_ = 0;
+        logger_.info("No produced MIP start is available for iteration ", iteration_, ".");
+        return;
     }
 
-    double objective_value = solver.getObjectiveValue();
-    int evaluated_time = GlobalTimer::elapsedSeconds();
-    logger_.info("Generated MIP start file for iteration ", iteration_, " with objective value ", objective_value, " and evaluation time ", evaluated_time, " seconds.");
-    RecordEvaluationOptions options;
-    options.mip_start_used = false; // This evaluation is not using a mip start, it is producing one
-    options.objective_value = objective_value;
-    options.gap = solver.getGap();
-    options.upper_bound = solver.getUpperBound();
-    options.lower_bound = solver.getLowerBound();
-    options.time_evaluated = evaluated_time;
-    options.worker_id = 0;
-    options.phase = 0; // Phase 0 for exploration
-    options.iteration = iteration_;
-    options.produced_mip_start = true;
-    options.mip_start_file = mip_start_file_;
-    logger_.info("Producing mip start file path = '", mip_start_file_, "'");
-    memory_.recordEvaluation(best_config, options);
+    mip_start_file_ = best_mip_start_file.value();
+    used_mip_start_id_ = best_mip_start_id.value();
+    logger_.info("Selected MIP start id ", used_mip_start_id_, " for iteration ", iteration_, ": ", mip_start_file_);
 }
 
 std::optional<double> IteratedLocalSearchEngine::getKnownInitialObjective_() const {
@@ -735,7 +781,7 @@ const Configuration& IteratedLocalSearchEngine::getInitialConfigurationForWorker
     if (!random_worker_initial_configs_ || worker_id <= 0) {
         return initial_configurations_[0];
     }
-    if (worker_id == 1 && mip_start_) {
+    if (worker_id == 1 && use_mip_start_) {
         return initial_configurations_[0];
     }
     if (worker_id < static_cast<int>(initial_configurations_.size())) {
@@ -920,11 +966,14 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
         options.phase = 0;
 
         options.mip_start_used = config.useMipStart();
-        if (config.useMipStart() && mip_start_) {
-            options.used_mip_start_id = memory_.getMipStartToUse();
+        if (config.useMipStart() && local_record.used_mip_start_id.has_value()) {
+            options.used_mip_start_id = local_record.used_mip_start_id;
+        } else if (config.useMipStart() && use_mip_start_) {
+            options.used_mip_start_id = used_mip_start_id_;
         }
 
-        options.produced_mip_start = false;
+        options.produced_mip_start = local_record.produced_mip_start;
+        options.mip_start_file = local_record.produced_mip_start_file;
 
         EvaluationId eval_id = memory_.recordEvaluation(config, options);
         const EvaluationRecord* global_eval = memory_.getEvaluationById(eval_id);
@@ -941,16 +990,28 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
 
     std::vector<std::pair<int, std::vector<EvaluationRecord>>> exploration_results;
     std::vector<CompactSharedCacheSeedEntry> historical_cache_seeds;
+    const bool mip_start_production_enabled = use_mip_start_;
 
-    if (mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
-        mip_start_ = true;
+    if (use_mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
+        use_mip_start_ = true;
     } else {
-        mip_start_ = false;
+        use_mip_start_ = false;
     }
-    logger_.info("Mip start is ", mip_start_ ? "enabled" : "disabled", " for this iteration.");
+    logger_.info("Mip start is ", use_mip_start_ ? "enabled" : "disabled", " for this iteration.");
 
-    if (mip_start_) {
+    if (use_mip_start_) {
         setMipStartFile();
+        if (mip_start_file_.empty()) {
+            use_mip_start_ = false;
+            logger_.info("MIP start use disabled for this iteration because no incumbent MIP start file is available.");
+        } else {
+            writeCurrentMipStartInfoFile(
+                buildCurrentMipStartInfoFilePath(ils_working_dir_, iteration_),
+                mip_start_file_,
+                used_mip_start_id_,
+                memory_.getBestMipStartUpperBound()
+            );
+        }
     }
 
     if (use_shared_cache_) {
@@ -987,6 +1048,9 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     // produced MIP start in later iterations.
     ils_options.use_mip_starts = false;
     ils_options.mip_start_file = std::nullopt;
+    ils_options.used_mip_start_id = std::nullopt;
+    ils_options.produce_mip_starts = mip_start_production_enabled;
+    ils_options.best_mip_start_upper_bound = memory_.getBestMipStartUpperBound();
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
     ils_options.solver_time_mode = solver_time_mode_;
@@ -1043,6 +1107,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
     bool mip_start_used = false;
     std::optional<MipStartId> used_mip_start_id = std::nullopt;
     bool produced_mip_start = false;
+    std::string produced_mip_start_file;
 
     while (std::getline(file, line)) {
         if (line.empty()) {
@@ -1060,6 +1125,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             mip_start_used = false;
             used_mip_start_id = std::nullopt;
             produced_mip_start = false;
+            produced_mip_start_file.clear();
             continue;
         }
 
@@ -1081,6 +1147,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             record.mip_start_source_evaluation_id = std::nullopt;
             record.produced_mip_start = produced_mip_start;
             record.produced_mip_start_id = std::nullopt;
+            record.produced_mip_start_file = produced_mip_start_file;
             record.worker_id = worker_id;
             record.iteration = iteration_;
             record.phase = 0;
@@ -1116,6 +1183,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             }
         } else if (key == "ProducedMipStart") {
             produced_mip_start = parseBool(value);
+        } else if (key == "ProducedMipStartFile") {
+            produced_mip_start_file = value;
         } else {
             config_map.emplace(key, Value(value));
         }
@@ -1171,11 +1240,20 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
         random_worker_initial_configs_ && worker_id_ > 0
             ? ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt"
             : ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
-    if (mip_start_ && worker_id_ == 1 && iteration_ > 1) {
-        mip_start_file_ = buildTunerPath("mip_start/mip_start_iteration_" + std::to_string(iteration_) + ".mst");
+    std::optional<MipStartId> used_mip_start_id = std::nullopt;
+    CurrentMipStartInfo mip_start_info;
+    if (produce_mip_starts_) {
+        mip_start_info = readCurrentMipStartInfoFile(
+            buildCurrentMipStartInfoFilePath(ils_working_dir_, iteration_),
+            worker_logger
+        );
+    }
+    if (use_mip_start_ && worker_id_ == 1 && iteration_ > 1) {
+        mip_start_file_ = mip_start_info.mip_start_file;
+        used_mip_start_id = mip_start_info.mip_start_id;
         worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
     } else {
-        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file.");
+        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file. Current best MIP-start upper bound threshold is ", mip_start_info.best_upper_bound, ".");
     }
 
     IteratedLocalSearch::Options ils_options;
@@ -1197,10 +1275,13 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
         ils_options.shared_cache_seed_entries =
             readHistoricalCacheSeedEntriesFromFile(historical_cache_seed_file, worker_logger);
     }
-    ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
+    ils_options.use_mip_starts = use_mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
         ils_options.mip_start_file = mip_start_file_;
+        ils_options.used_mip_start_id = used_mip_start_id;
     }
+    ils_options.produce_mip_starts = produce_mip_starts_;
+    ils_options.best_mip_start_upper_bound = mip_start_info.best_upper_bound;
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
     ils_options.solver_time_mode = solver_time_mode_;
@@ -1243,7 +1324,9 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
             myfile << "UsedMipStartId=" << record.used_mip_start_id.value_or(-1) << std::endl;
         }
         myfile << "ProducedMipStart=" << record.produced_mip_start << std::endl;
-        //Todo: we could also write the produced mip start file path if produced_mip_start is true but change memory for that to store the path
+        if (record.produced_mip_start) {
+            myfile << "ProducedMipStartFile=" << record.produced_mip_start_file << std::endl;
+        }
         myfile << "EndConfiguration" << std::endl;
     }
     myfile.close();

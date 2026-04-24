@@ -239,6 +239,9 @@ class IteratedLocalSearch {
 
             bool use_mip_starts = false;
             std::optional<std::string> mip_start_file = std::nullopt;
+            std::optional<MipStartId> used_mip_start_id = std::nullopt;
+            bool produce_mip_starts = false;
+            double best_mip_start_upper_bound = std::numeric_limits<double>::max();
 
             int nb_threads_solver = 2;
             double cutoff_solver_time = 15.0;
@@ -263,6 +266,7 @@ class IteratedLocalSearch {
 
         Configuration incumbent_solution_;
         Configuration current_configuration_;
+        double best_mip_start_upper_bound_;
 
 #ifdef USE_MPI
         struct PendingStopSignal {
@@ -293,13 +297,16 @@ class IteratedLocalSearch {
         EvaluationRecord getOrEvaluate_(const Configuration& config);
 
         EvaluationRecord runSolverAndCreateRecord_(const Configuration& config);
+        bool wouldImproveMipStartUpperBound_(const std::optional<double>& upper_bound) const;
 
         EvaluationRecord createEvaluationRecord_(
             const Configuration& config,
             double objective_value,
             std::optional<double> gap = std::nullopt,
             std::optional<double> upper_bound = std::nullopt,
-            std::optional<double> lower_bound = std::nullopt
+            std::optional<double> lower_bound = std::nullopt,
+            bool produced_mip_start = false,
+            const std::string& produced_mip_start_file = ""
         );
         EvaluationRecord createSharedEvaluationRecord_(const Configuration& config, double objective_value);
 
@@ -319,6 +326,7 @@ class IteratedLocalSearch {
 
         std::string buildConfigFilePath_(const Configuration& config) const;
         std::string buildLogFilePath_(const Configuration& config) const;
+        std::string buildMipStartCandidateFilePath_(const Configuration& config, EvaluationId evaluation_id) const;
 
     public:
         IteratedLocalSearch(
@@ -329,7 +337,8 @@ class IteratedLocalSearch {
            shared_objective_cache_(logger),
            search_space_(logger),
            options_(options),
-           rng_(options.random_seed)
+           rng_(options.random_seed),
+           best_mip_start_upper_bound_(options.best_mip_start_upper_bound)
         {}
 
         void run();

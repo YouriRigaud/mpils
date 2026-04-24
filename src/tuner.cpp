@@ -313,6 +313,7 @@ void Worker::receiveOrderFromMaster() {
 void Worker::runExplorationPhase() {
     std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
     const bool use_mip_start = enable_mip_starts_ && worker_id_ == 1;
+    const bool produce_mip_start = enable_mip_starts_;
     switch (local_search_backend_) {
         case LocalSearchBackend::IteratedLocalSearch:
             setLocalSearchWorker(std::make_unique<IteratedLocalSearchWorker>(
@@ -328,6 +329,7 @@ void Worker::runExplorationPhase() {
                 base_seed_,
                 use_shared_cache_,
                 use_mip_start,
+                produce_mip_start,
                 random_worker_initial_configs_
             ));
             break;

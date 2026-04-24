@@ -95,8 +95,13 @@ void CPLEXSolver::solve() {
         logStream << "End of CPLEX run. Time: " << time_sec_ << " seconds\n";
         logStream.flush();
 
-        // write mip start file
-        if (!produce_mip_start_file_.empty()) {
+        // write mip start file when this solve found a feasible incumbent that improves the requested threshold
+        const bool should_write_mip_start =
+            !produce_mip_start_file_.empty() &&
+            upper_bound_.has_value() &&
+            (!mip_start_write_upper_bound_threshold_.has_value() ||
+             upper_bound_.value() < mip_start_write_upper_bound_threshold_.value());
+        if (should_write_mip_start) {
             ensureParentDirectoryForFile(produce_mip_start_file_);
             cplex.writeMIPStarts(produce_mip_start_file_.c_str());
             logger_.info("Writing MIP start file: " + produce_mip_start_file_);

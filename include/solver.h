@@ -25,6 +25,7 @@ class Solver {
         SolverTimeMode solver_time_mode_;
         std::string mip_start_from_file_; // mip start file for the solver (optional)
         std::string produce_mip_start_file_; // mip start file produced by the solver (optional)
+        std::optional<double> mip_start_write_upper_bound_threshold_; // only write produced MIP start if upper bound improves this threshold
         TuningObjective tuning_objective_;
 
     public:
@@ -38,6 +39,7 @@ class Solver {
               solver_time_mode_(solver_time_mode),
               mip_start_from_file_(""),
               produce_mip_start_file_(""),
+              mip_start_write_upper_bound_threshold_(std::nullopt),
               tuning_objective_(tuning_objective)
         {}
 
@@ -51,10 +53,11 @@ class Solver {
               solver_time_mode_(solver_time_mode),
               mip_start_from_file_(mip_start_from_file),
               produce_mip_start_file_(""),
+              mip_start_write_upper_bound_threshold_(std::nullopt),
               tuning_objective_(tuning_objective)
         {}
 
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, std::string& produce_mip_start_file, TuningObjective tuning_objective = TuningObjective::Gap)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, std::string& produce_mip_start_file, TuningObjective tuning_objective = TuningObjective::Gap, std::optional<double> mip_start_write_upper_bound_threshold = std::nullopt)
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
@@ -64,6 +67,7 @@ class Solver {
               solver_time_mode_(solver_time_mode),
               mip_start_from_file_(mip_start_from_file),
               produce_mip_start_file_(produce_mip_start_file),
+              mip_start_write_upper_bound_threshold_(mip_start_write_upper_bound_threshold),
               tuning_objective_(tuning_objective)
         {}
 
@@ -129,8 +133,9 @@ class CPLEXSolver : public Solver {
             SolverTimeMode solver_time_mode,
             std::string& mip_start_from_file,
             std::string& produce_mip_start_file,
-            TuningObjective tuning_objective = TuningObjective::Gap
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, produce_mip_start_file, tuning_objective),
+            TuningObjective tuning_objective = TuningObjective::Gap,
+            std::optional<double> mip_start_write_upper_bound_threshold = std::nullopt
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, produce_mip_start_file, tuning_objective, mip_start_write_upper_bound_threshold),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),

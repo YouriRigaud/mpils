@@ -808,6 +808,7 @@ void IteratedLocalSearch::injectInitialConfigurationIfAlreadyEvaluated_() {
     initial_record.mip_start_source_evaluation_id = std::nullopt;
     initial_record.produced_mip_start = false;
     initial_record.produced_mip_start_id = std::nullopt;
+    initial_record.produced_mip_start_file.clear();
     initial_record.worker_id = -1;
     initial_record.iteration = static_cast<int>(current_iteration_);
     initial_record.phase = -1;
@@ -926,6 +927,16 @@ std::string IteratedLocalSearch::buildLogFilePath_(const Configuration& config) 
     return options_.working_directory + "/ils_log_" + std::to_string(config.getConfigurationId()) + ".log";
 }
 
+std::string IteratedLocalSearch::buildMipStartCandidateFilePath_(const Configuration& config, EvaluationId evaluation_id) const {
+    return options_.working_directory + "/mip_starts/mip_start_eval_" +
+           std::to_string(evaluation_id) + "_config_" +
+           std::to_string(config.getConfigurationId()) + ".mst";
+}
+
+bool IteratedLocalSearch::wouldImproveMipStartUpperBound_(const std::optional<double>& upper_bound) const {
+    return upper_bound.has_value() && upper_bound.value() < best_mip_start_upper_bound_;
+}
+
 EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configuration& config) {
     std::filesystem::create_directories(options_.working_directory);
 
@@ -942,6 +953,11 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
     std::optional<double> gap = std::nullopt;
     std::optional<double> upper_bound = std::nullopt;
     std::optional<double> lower_bound = std::nullopt;
+    std::string produced_mip_start_file;
+
+    if (options_.produce_mip_starts) {
+        produced_mip_start_file = buildMipStartCandidateFilePath_(config, static_cast<EvaluationId>(next_evaluation_id_));
+    }
 
     if (config.useMipStart() && options_.mip_start_file.has_value()) {
         std::string mip_start_file = options_.mip_start_file.value();
@@ -954,7 +970,9 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
             options_.cutoff_solver_time,
             options_.solver_time_mode,
             mip_start_file,
-            options_.tuning_objective
+            produced_mip_start_file,
+            options_.tuning_objective,
+            best_mip_start_upper_bound_
         );
         solver.solve();
         objective_value = solver.getObjectiveValue();
@@ -962,6 +980,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
         upper_bound = solver.getUpperBound();
         lower_bound = solver.getLowerBound();
     } else {
+        std::string empty_mip_start_file;
         CPLEXSolver solver(
             logger_,
             options_.instance_file,
@@ -970,7 +989,10 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
             options_.nb_threads_solver,
             options_.cutoff_solver_time,
             options_.solver_time_mode,
-            options_.tuning_objective
+            empty_mip_start_file,
+            produced_mip_start_file,
+            options_.tuning_objective,
+            best_mip_start_upper_bound_
         );
         solver.solve();
         objective_value = solver.getObjectiveValue();
@@ -979,7 +1001,14 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
         lower_bound = solver.getLowerBound();
     }
 
-    return createEvaluationRecord_(config, objective_value, gap, upper_bound, lower_bound);
+    const bool produced_mip_start = options_.produce_mip_starts && wouldImproveMipStartUpperBound_(upper_bound);
+    if (produced_mip_start) {
+        best_mip_start_upper_bound_ = upper_bound.value();
+    } else {
+        produced_mip_start_file.clear();
+    }
+
+    return createEvaluationRecord_(config, objective_value, gap, upper_bound, lower_bound, produced_mip_start, produced_mip_start_file);
 }
 
 EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
@@ -987,7 +1016,9 @@ EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
     double objective_value,
     std::optional<double> gap,
     std::optional<double> upper_bound,
-    std::optional<double> lower_bound
+    std::optional<double> lower_bound,
+    bool produced_mip_start,
+    const std::string& produced_mip_start_file
 ) {
     EvaluationRecord record;
     record.evaluation_id = static_cast<EvaluationId>(next_evaluation_id_++);
@@ -999,11 +1030,12 @@ EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
     record.configuration_id = config.getConfigurationId();
 
     record.mip_start_used = config.useMipStart();
-    record.used_mip_start_id = std::nullopt;
+    record.used_mip_start_id = config.useMipStart() ? options_.used_mip_start_id : std::nullopt;
     record.mip_start_source_evaluation_id = std::nullopt;
 
-    record.produced_mip_start = false;
+    record.produced_mip_start = produced_mip_start;
     record.produced_mip_start_id = std::nullopt;
+    record.produced_mip_start_file = produced_mip_start_file;
 
     record.worker_id = -1;
     record.iteration = static_cast<int>(current_iteration_);
@@ -1028,6 +1060,7 @@ EvaluationRecord IteratedLocalSearch::createSharedEvaluationRecord_(const Config
 
     record.produced_mip_start = false;
     record.produced_mip_start_id = std::nullopt;
+    record.produced_mip_start_file.clear();
 
     record.worker_id = -2;
     record.iteration = static_cast<int>(current_iteration_);

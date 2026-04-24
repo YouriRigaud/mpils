@@ -63,11 +63,8 @@ EvaluationRecord TunerMemory::createEvaluationRecord_(const RecordEvaluationOpti
     }
 
     record.produced_mip_start = options.produced_mip_start;
-    if (options.produced_mip_start) {
-        record.produced_mip_start_id = next_mip_start_id_++;
-    } else {
-        record.produced_mip_start_id = std::nullopt;
-    }
+    record.produced_mip_start_id = std::nullopt;
+    record.produced_mip_start_file = options.produced_mip_start ? options.mip_start_file : "";
     return record;
 }
 
@@ -98,19 +95,39 @@ void TunerMemory::updateStatsForConfiguration_(const EvaluationRecord& record) {
     }
 }
 
-void TunerMemory::updateMipStartRecords_(const EvaluationRecord& record, const std::string& mip_start_file) {
+void TunerMemory::updateMipStartRecords_(EvaluationRecord& record, const std::string& mip_start_file) {
     if (!record.produced_mip_start) {
         return;
     }
+    if (!record.upper_bound.has_value()) {
+        logger_.warn("Evaluation marked as producing a MIP start but no upper bound is available. EvalId: ", record.evaluation_id);
+        record.produced_mip_start = false;
+        record.produced_mip_start_file.clear();
+        return;
+    }
+    if (!wouldImproveBestMipStartUpperBound(record.upper_bound.value())) {
+        logger_.debug("Ignoring produced MIP start because upper bound ", record.upper_bound.value(),
+                      " does not improve current best MIP-start upper bound ", best_mip_start_upper_bound_,
+                      ". EvalId: ", record.evaluation_id);
+        record.produced_mip_start = false;
+        record.produced_mip_start_file.clear();
+        return;
+    }
+    record.produced_mip_start_id = next_mip_start_id_++;
+    record.produced_mip_start_file = mip_start_file;
+
     MipStartRecord mip_start_record{};
     mip_start_record.mip_start_id = *record.produced_mip_start_id;
     mip_start_record.evaluation_id = record.evaluation_id;
     mip_start_record.mip_start_file = mip_start_file;
+    mip_start_record.upper_bound = record.upper_bound.value();
 
     if (mip_start_record.mip_start_file.empty()) {
         logger_.warn("Produced mip start but mip_start_file is empty. EvalId: ", record.evaluation_id, " MipStartId: ", mip_start_record.mip_start_id);
     }
 
+    best_mip_start_id_ = mip_start_record.mip_start_id;
+    best_mip_start_upper_bound_ = mip_start_record.upper_bound;
     mip_starts_by_id_[mip_start_record.mip_start_id] = std::move(mip_start_record);
 }
 
@@ -120,10 +137,11 @@ EvaluationId TunerMemory::recordEvaluation(const Configuration& config, const Re
     ConfigurationId config_id = ensureConfigurationStored_(config);
     EvaluationRecord record = createEvaluationRecord_(options, config_id, eval_id);
     evaluations_.push_back(record);
-    updateBestEvaluation_(record);
-    updateStatsForConfiguration_(record);
-    updateMipStartRecords_(record, options.mip_start_file);
-    logger_.debug("Added evaluation to memory with objective: ", record.objective_value, ", ConfigId: ", record.configuration_id, ", EvalId: ", record.evaluation_id, ". Total evaluations stored: ", evaluations_.size());
+    EvaluationRecord& stored_record = evaluations_.back();
+    updateBestEvaluation_(stored_record);
+    updateStatsForConfiguration_(stored_record);
+    updateMipStartRecords_(stored_record, options.mip_start_file);
+    logger_.debug("Added evaluation to memory with objective: ", stored_record.objective_value, ", ConfigId: ", stored_record.configuration_id, ", EvalId: ", stored_record.evaluation_id, ". Total evaluations stored: ", evaluations_.size());
     return eval_id;
 }
 

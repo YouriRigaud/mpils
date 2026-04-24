@@ -65,6 +65,7 @@ struct EvaluationRecord {
     
     bool produced_mip_start;
     std::optional<MipStartId> produced_mip_start_id;
+    std::string produced_mip_start_file;
     
     int worker_id;
     int iteration;
@@ -78,6 +79,7 @@ struct MipStartRecord {
     MipStartId mip_start_id;
     std::string mip_start_file;
     EvaluationId evaluation_id; // Evaluation that produced this MIP start
+    double upper_bound = std::numeric_limits<double>::max(); // Feasible objective value represented by this MIP start
 };
 
 struct RecordEvaluationOptions {
@@ -129,6 +131,8 @@ class TunerMemory {
 
         std::optional<uint64_t> best_evaluation_without_mip_start_index_;                ///< Index of the best evaluation in the evaluations_ vector that did not use MIP start
         double best_objective_without_mip_start_ = std::numeric_limits<double>::max(); ///< Best objective value found so far among evaluations that did not use MIP start
+        std::optional<MipStartId> best_mip_start_id_; ///< ID of the MIP start with the best feasible upper bound
+        double best_mip_start_upper_bound_ = std::numeric_limits<double>::max(); ///< Best feasible upper bound represented by a produced MIP start
 
         Configuration default_configuration_;       ///< Default configuration
         EvaluationId next_evaluation_id_ = 1;                ///< Counter for assigning unique evaluation IDs
@@ -144,7 +148,7 @@ class TunerMemory {
         
         void updateStatsForConfiguration_(const EvaluationRecord& record); ///< Update the statistics for a configuration based on a new evaluation record.
     
-        void updateMipStartRecords_(const EvaluationRecord& record, const std::string& mip_start_file); ///< Update the MIP start records based on a new evaluation record that has produced a MIP start.
+        void updateMipStartRecords_(EvaluationRecord& record, const std::string& mip_start_file); ///< Update the MIP start records based on a new evaluation record that has produced a MIP start.
 
         void logNewBestEvaluation_(const EvaluationRecord& record); ///< Print a log message when a new best evaluation is found, with details about the evaluation and the configuration.
 
@@ -178,9 +182,12 @@ class TunerMemory {
          */
         bool setMipStartFile(const std::string& mip_start_file, MipStartId mip_start_id);
 
-        //TODO Change that 
-        MipStartId getMipStartToUse() {
-            return next_mip_start_id_ - 1; // The next MIP start ID to use is the last one that was generated, which is next_mip_start_id_ - 1
+        MipStartId getMipStartToUse() const {
+            return best_mip_start_id_.value_or(0);
+        }
+
+        std::optional<MipStartId> getBestMipStartId() const {
+            return best_mip_start_id_;
         }
 
         /** @brief Get the evaluation from its ID */
@@ -263,6 +270,14 @@ class TunerMemory {
             return best_objective_without_mip_start_;
         }
 
+        double getBestMipStartUpperBound() const {
+            return best_mip_start_upper_bound_;
+        }
+
+        bool wouldImproveBestMipStartUpperBound(double upper_bound) const {
+            return upper_bound < best_mip_start_upper_bound_;
+        }
+
         void exportEvaluationLogCSV(const std::string& filename) const {
             ensureParentDirectoryForFile(filename);
             std::ofstream file(filename);
@@ -324,7 +339,7 @@ class TunerMemory {
                 throw std::runtime_error("Could not open file to write unique MIP starts: " + filename);
             }
             // Write header
-            file << "MipStartID,MipStartFile,SourceEvalID\n";
+            file << "MipStartID,MipStartFile,SourceEvalID,UpperBound\n";
             // Write unique MIP starts
             for (const auto& [mip_start_id, mip_start] : mip_starts_by_id_) {
                 file << mip_start_id << "," << mip_start.mip_start_file << ",";
@@ -333,6 +348,7 @@ class TunerMemory {
                 } else {
                     file << "null";
                 }
+                file << "," << mip_start.upper_bound;
                 file << "\n";
             }
             file.close();
@@ -367,12 +383,10 @@ class TunerMemory {
 
         /** @brief Get the best MIP start file from the memory */
         std::optional<std::string> getBestMipStartFile() const {
-            if (mip_starts_by_id_.empty()) {
+            if (!best_mip_start_id_.has_value()) {
                 return std::nullopt;
             }
-            // Return the last MIP start generated, which is the one with the highest ID (next_mip_start_id_ - 1)
-            MipStartId best_mip_start_id = next_mip_start_id_ - 1;
-            auto it = mip_starts_by_id_.find(best_mip_start_id);
+            auto it = mip_starts_by_id_.find(best_mip_start_id_.value());
             if (it != mip_starts_by_id_.end()) {
                 return it->second.mip_start_file;
             }
