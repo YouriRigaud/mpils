@@ -16,6 +16,7 @@
 #endif
 
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <stdexcept>
 #include <iostream>
@@ -49,6 +50,7 @@ struct TunerOptions {
     ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast;
     double expansion_max_deviation = std::numeric_limits<double>::max();
     bool expansion_enable_early_stop = true;
+    bool clean_working_dir = false;
 };
 
 void printHelp(const char* program_name) {
@@ -57,6 +59,8 @@ void printHelp(const char* program_name) {
     std::cout << "Options:" << std::endl;
     std::cout << "  --help                          Show this help message and exit" << std::endl;
     std::cout << "  --working-dir PATH              Set the tuner working directory" << std::endl;
+    std::cout << "  --clean-working-dir             Remove generated subdirectories and transient files after tuning" << std::endl;
+    std::cout << "  --no-clean-working-dir          Keep the full working directory after tuning (default)" << std::endl;
     std::cout << "  --parameters-file PATH          Set the parameter definition file" << std::endl;
     std::cout << "  --paramils-instance-file PATH   Set the ParamILS instance list file" << std::endl;
     std::cout << "  --initial-selected-parameters N Set the number of initially selected parameters" << std::endl;
@@ -90,6 +94,10 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
         if (std::strcmp(argv[i], "--help") == 0) {
             printHelp(argv[0]);
             std::exit(0);
+        } else if (std::strcmp(argv[i], "--clean-working-dir") == 0) {
+            options.clean_working_dir = true;
+        } else if (std::strcmp(argv[i], "--no-clean-working-dir") == 0) {
+            options.clean_working_dir = false;
         } else if (std::strcmp(argv[i], "--shared-cache") == 0) {
             options.use_shared_cache = true;
         } else if (std::strcmp(argv[i], "--no-shared-cache") == 0) {
@@ -217,6 +225,33 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
     }
 }
 
+void cleanTunerWorkingDirectory(const std::string& tuner_dir) {
+    namespace fs = std::filesystem;
+
+    const fs::path working_dir(tuner_dir);
+    if (!fs::exists(working_dir) || !fs::is_directory(working_dir)) {
+        return;
+    }
+
+    for (const auto& entry : fs::directory_iterator(working_dir)) {
+        const fs::path& path = entry.path();
+        const std::string filename = path.filename().string();
+
+        if (entry.is_directory()) {
+            fs::remove_all(path);
+            continue;
+        }
+
+        const bool keep_file = filename == "tuner.log" ||
+                               filename == "best_configuration.prm" ||
+                               path.extension() == ".csv";
+
+        if (!keep_file) {
+            fs::remove(path);
+        }
+    }
+}
+
 void validateTunerOptions(const TunerOptions& options) {
     if (options.local_search_backend == LocalSearchBackend::ParamILS &&
         options.solver_time_mode == SolverTimeMode::Ticks) {
@@ -255,6 +290,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
     std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
     std::cout << "Solver time mode: " << solverTimeModeToString(options.solver_time_mode) << std::endl;
+    std::cout << "Clean working directory: " << (options.clean_working_dir ? "enabled" : "disabled") << std::endl;
     std::cout << "Number of evaluations: ";
     if (options.number_of_evaluations.has_value()) {
         std::cout << options.number_of_evaluations.value() << std::endl;
@@ -318,6 +354,10 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     tuner.writeConfigurationsHistoryToFiles(options.tuner_dir + "tuner_history");
 
     log_file.close();
+
+    if (options.clean_working_dir) {
+        cleanTunerWorkingDirectory(options.tuner_dir);
+    }
 }
 
 #ifdef USE_MPI
