@@ -128,6 +128,7 @@ class ReplicatedObjectiveCache {
         explicit ReplicatedObjectiveCache(Logger logger): logger_(logger) {}
 
         void initialize();
+        void seed(ConfigurationId configuration_id, double objective_value);
         void publish(ConfigurationId configuration_id, double objective_value);
         void pollIncoming();
         void flushPendingSends();
@@ -234,6 +235,7 @@ class IteratedLocalSearch {
             bool accept_ties = false;
             double acceptance_threshold = 0.0;
             bool use_shared_cache = false;
+            std::vector<CompactSharedCacheSeedEntry> shared_cache_seed_entries;
 
             bool use_mip_starts = false;
             std::optional<std::string> mip_start_file = std::nullopt;
@@ -278,6 +280,7 @@ class IteratedLocalSearch {
 #endif
 
         void createSearchSpace_();
+        void seedSharedCache_();
         void checkMipStartFile_();
         void initializeFromSearchSpace_();
         void injectInitialConfigurationIfAlreadyEvaluated_();

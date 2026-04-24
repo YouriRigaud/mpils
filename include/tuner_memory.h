@@ -97,6 +97,16 @@ struct RecordEvaluationOptions {
     std::string mip_start_file;                                                 /// If produced_mip_start is true, the file path of the MIP start generated.
 };
 
+struct HistoricalCacheSeedEntry {
+    Configuration configuration;
+    double objective_value = std::numeric_limits<double>::max();
+};
+
+struct CompactSharedCacheSeedEntry {
+    ConfigurationId configuration_id = 0;
+    double objective_value = std::numeric_limits<double>::max();
+};
+
 /**
  * @brief Class representing the memory of the tuner.
  * 
@@ -326,6 +336,21 @@ class TunerMemory {
                 file << "\n";
             }
             file.close();
+        }
+
+        /** @brief Get the best known objective for each stored no-MIP-start configuration for cache seeding */
+        std::vector<HistoricalCacheSeedEntry> getHistoricalCacheSeedEntries() const {
+            std::vector<HistoricalCacheSeedEntry> cache_seed_entries;
+            for (const auto& [config_id, config] : configurations_by_id_) {
+                if (config.useMipStart()) {
+                    continue;
+                }
+                const ConfigurationStats& stats = stats_by_id_.at(config_id);
+                if (stats.nb_evaluations > 0) {
+                    cache_seed_entries.push_back(HistoricalCacheSeedEntry{config, stats.best_objective});
+                }
+            }
+            return cache_seed_entries;
         }
 
         /** @brief Get all the configurations stored in memory along with their best objective value */

@@ -55,6 +55,10 @@ void ReplicatedObjectiveCache::initialize() {
 #endif
 }
 
+void ReplicatedObjectiveCache::seed(ConfigurationId configuration_id, double objective_value) {
+    updateObjective_(configuration_id, objective_value);
+}
+
 void ReplicatedObjectiveCache::publish(ConfigurationId configuration_id, double objective_value) {
     updateObjective_(configuration_id, objective_value);
 
@@ -741,6 +745,24 @@ void IteratedLocalSearch::createSearchSpace_() {
     search_space_.loadFromFile(options_.search_space_file);
 }
 
+void IteratedLocalSearch::seedSharedCache_() {
+    if (!options_.use_shared_cache || options_.shared_cache_seed_entries.empty()) {
+        return;
+    }
+
+    for (const auto& seed_entry : options_.shared_cache_seed_entries) {
+        shared_objective_cache_.seed(
+            seed_entry.configuration_id,
+            seed_entry.objective_value
+        );
+    }
+
+    logger_.info(
+        "Seeded ", static_cast<int>(options_.shared_cache_seed_entries.size()),
+        " shared-cache seed entrie(s) into the replicated objective cache."
+    );
+}
+
 void IteratedLocalSearch::checkMipStartFile_() {
     if (options_.use_mip_starts) {
         if (options_.mip_start_file.has_value()) {
@@ -1093,6 +1115,7 @@ void IteratedLocalSearch::run() {
 
     try {
         createSearchSpace_();
+        seedSharedCache_();
         checkMipStartFile_();
         initializeFromSearchSpace_();
         injectInitialConfigurationIfAlreadyEvaluated_();

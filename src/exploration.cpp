@@ -30,6 +30,80 @@ std::string buildParamILSCommand(const std::string& executable, std::uint32_t nu
     return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path;
 }
 
+std::string buildHistoricalCacheSeedFilePath(const std::string& ils_working_dir, int iteration) {
+    return ils_working_dir + "search_space/shared_cache_seed_" + std::to_string(iteration) + ".txt";
+}
+
+void writeHistoricalCacheSeedEntriesToFile(
+    const std::string& filename,
+    const std::vector<CompactSharedCacheSeedEntry>& seeds
+) {
+    ensureParentDirectoryForFile(filename);
+    std::ofstream myfile(filename);
+    if (!myfile.is_open()) {
+        throw std::runtime_error("Error opening historical cache seed file for writing: " + filename);
+    }
+
+    for (const auto& seed : seeds) {
+        myfile << "ConfigurationId=" << seed.configuration_id << std::endl;
+        myfile << "ObjectiveValue=" << seed.objective_value << std::endl;
+    }
+}
+
+#ifdef USE_MPI
+std::vector<CompactSharedCacheSeedEntry> readHistoricalCacheSeedEntriesFromFile(
+    const std::string& filename,
+    Logger& logger
+) {
+    std::vector<CompactSharedCacheSeedEntry> seeds;
+
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        logger.info("Historical cache seed file not found: ", filename);
+        return seeds;
+    }
+
+    std::string line;
+    double objective_value = kMaxObjective;
+    ConfigurationId configuration_id = 0;
+    bool has_configuration_id = false;
+    bool has_objective_value = false;
+
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
+
+        const std::size_t eq_pos = line.find('=');
+        if (eq_pos == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = line.substr(0, eq_pos);
+        const std::string value = line.substr(eq_pos + 1);
+
+        if (key == "ConfigurationId") {
+            configuration_id = static_cast<ConfigurationId>(std::stoull(value));
+            has_configuration_id = true;
+        } else if (key == "ObjectiveValue") {
+            objective_value = std::stod(value);
+            has_objective_value = true;
+        }
+
+        if (has_configuration_id && has_objective_value) {
+            seeds.push_back(CompactSharedCacheSeedEntry{configuration_id, objective_value});
+            configuration_id = 0;
+            objective_value = kMaxObjective;
+            has_configuration_id = false;
+            has_objective_value = false;
+        }
+    }
+
+    logger.info("Loaded ", static_cast<int>(seeds.size()), " historical cache seed entries from ", filename);
+    return seeds;
+}
+#endif
+
 } // namespace
 
 void Exploration::updateTunedParameters() {
@@ -632,6 +706,31 @@ std::optional<double> IteratedLocalSearchEngine::getKnownInitialObjective_() con
     return std::nullopt;
 }
 
+std::vector<CompactSharedCacheSeedEntry> IteratedLocalSearchEngine::getSharedCacheSeedEntries_() const {
+    std::vector<CompactSharedCacheSeedEntry> seeds;
+    const auto historical_entries = memory_.getHistoricalCacheSeedEntries();
+    seeds.reserve(historical_entries.size());
+    for (const auto& entry : historical_entries) {
+        seeds.push_back(CompactSharedCacheSeedEntry{
+            entry.configuration.getConfigurationId(),
+            entry.objective_value
+        });
+    }
+    return seeds;
+}
+
+std::string IteratedLocalSearchEngine::getHistoricalCacheSeedFilePath_() const {
+    return buildHistoricalCacheSeedFilePath(ils_working_dir_, iteration_);
+}
+
+void IteratedLocalSearchEngine::writeHistoricalCacheSeedFile_(
+    const std::vector<CompactSharedCacheSeedEntry>& seeds
+) const {
+    const std::string seed_file_path = getHistoricalCacheSeedFilePath_();
+    writeHistoricalCacheSeedEntriesToFile(seed_file_path, seeds);
+    logger_.info("Historical cache seed file written: ", seed_file_path, " with ", static_cast<int>(seeds.size()), " entries.");
+}
+
 const Configuration& IteratedLocalSearchEngine::getInitialConfigurationForWorker_(int worker_id) const {
     if (!random_worker_initial_configs_ || worker_id <= 0) {
         return initial_configurations_[0];
@@ -841,6 +940,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     logger_.info("Running IteratedLocalSearch Engine...");
 
     std::vector<std::pair<int, std::vector<EvaluationRecord>>> exploration_results;
+    std::vector<CompactSharedCacheSeedEntry> historical_cache_seeds;
 
     if (mip_start_ && iteration_ > 1 && nb_workers_ > 1) {
         mip_start_ = true;
@@ -851,6 +951,11 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
 
     if (mip_start_) {
         setMipStartFile();
+    }
+
+    if (use_shared_cache_) {
+        historical_cache_seeds = getSharedCacheSeedEntries_();
+        writeHistoricalCacheSeedFile_(historical_cache_seeds);
     }
 
     writeILSSearchSpaceFile(0);
@@ -877,6 +982,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.0;
     ils_options.use_shared_cache = use_shared_cache_;
+    ils_options.shared_cache_seed_entries = historical_cache_seeds;
     // Worker 0 never uses MIP starts. Only MPI worker 1 may consume the
     // produced MIP start in later iterations.
     ils_options.use_mip_starts = false;
@@ -1085,6 +1191,12 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.accept_ties = false;
     ils_options.acceptance_threshold = 0.0;
     ils_options.use_shared_cache = use_shared_cache_;
+    if (use_shared_cache_) {
+        const std::string historical_cache_seed_file =
+            buildHistoricalCacheSeedFilePath(ils_working_dir_, iteration_);
+        ils_options.shared_cache_seed_entries =
+            readHistoricalCacheSeedEntriesFromFile(historical_cache_seed_file, worker_logger);
+    }
     ils_options.use_mip_starts = mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
         ils_options.mip_start_file = mip_start_file_;

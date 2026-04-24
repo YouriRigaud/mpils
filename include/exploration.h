@@ -110,6 +110,9 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
         void writeILSForbiddenOptionsToFile(std::ofstream& myfile, int worker_id);
         void writeILSConditionalCplexOptionsToFile(std::ofstream& myfile);
         void writeILSInfoToFile(std::ofstream& myfile, int worker_id);
+        std::vector<CompactSharedCacheSeedEntry> getSharedCacheSeedEntries_() const;
+        std::string getHistoricalCacheSeedFilePath_() const;
+        void writeHistoricalCacheSeedFile_(const std::vector<CompactSharedCacheSeedEntry>& seeds) const;
 
         std::optional<double> getKnownInitialObjective_() const;
 
