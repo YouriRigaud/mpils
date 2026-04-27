@@ -43,6 +43,7 @@ struct TunerOptions {
     std::uint32_t seed = 0;
     TuningObjective tuning_objective = TuningObjective::Gap;
     std::optional<int> number_of_evaluations = std::nullopt;
+    std::optional<int> exploration_budget_divisor = std::nullopt;
     int max_iterations = 15;
     bool enable_mip_starts = true;
     bool random_worker_initial_configs = true;
@@ -72,6 +73,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --seed N                        Set the base random seed" << std::endl;
     std::cout << "  --tuning-objective NAME         Set the tuning objective (gap or upper_bound)" << std::endl;
     std::cout << "  --number-of-evaluations N       Override the exploration evaluation budget" << std::endl;
+    std::cout << "  --divide-exploration-budget N   Divide the exploration evaluation budget by N" << std::endl;
     std::cout << "  --max-iterations N              Set the maximum number of tuner iterations" << std::endl;
     std::cout << "  --expansion-select-rule MODE    Set expansion selection comparison (strict or inclusive)" << std::endl;
     std::cout << "  --expansion-value-strategy MODE Set expansion value evaluation strategy (all or first_last)" << std::endl;
@@ -173,6 +175,15 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("--number-of-evaluations must be greater than 0");
             }
             options.number_of_evaluations = parsed_number_of_evaluations;
+        } else if (std::strcmp(argv[i], "--divide-exploration-budget") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --divide-exploration-budget");
+            }
+            const int parsed_exploration_budget_divisor = std::stoi(argv[++i]);
+            if (parsed_exploration_budget_divisor <= 0) {
+                throw std::runtime_error("--divide-exploration-budget must be greater than 0");
+            }
+            options.exploration_budget_divisor = parsed_exploration_budget_divisor;
         } else if (std::strcmp(argv[i], "--max-iterations") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --max-iterations");
@@ -297,6 +308,12 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     } else {
         std::cout << "auto" << std::endl;
     }
+    std::cout << "Exploration budget divisor: ";
+    if (options.exploration_budget_divisor.has_value()) {
+        std::cout << options.exploration_budget_divisor.value() << std::endl;
+    } else {
+        std::cout << "none" << std::endl;
+    }
 
     // init a clock to measure tuning time
     GlobalTimer::start();
@@ -326,6 +343,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.seed,
         options.tuning_objective,
         options.number_of_evaluations,
+        options.exploration_budget_divisor,
         options.max_iterations,
         options.enable_mip_starts,
         options.random_worker_initial_configs,

@@ -248,6 +248,15 @@ void Exploration::run() {
             nb_evaluations = 5;
         }
     }
+    if (exploration_budget_divisor_.has_value()) {
+        const int divisor = exploration_budget_divisor_.value();
+        const int original_nb_evaluations = nb_evaluations;
+        nb_evaluations /= divisor;
+        if (nb_evaluations < 1) {
+            nb_evaluations = 1;
+        }
+        logger_.info("Divided exploration evaluation budget by ", divisor, ": ", original_nb_evaluations, " -> ", nb_evaluations);
+    }
     updateTunedParameters();
     std::vector<Configuration> initial_configurations = selectInitialConfigurations();
     logger_.info("Number of evaluations for this tuning phase: ", nb_evaluations);
