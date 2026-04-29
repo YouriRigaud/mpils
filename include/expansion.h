@@ -227,6 +227,7 @@ class ExpansionWorker {
         TuningObjective tuning_objective_;
         double best_objective_value_;
         bool enable_early_stop_;
+        Logger& logger_;
 
         std::vector<std::pair<int, std::string>> configs_to_evaluate_; // Pair of (config_id, config_file_path)
         std::vector<ExpansionEvaluationResult> evaluation_results_;
@@ -237,8 +238,8 @@ class ExpansionWorker {
         bool isExpansionImprovement(double objective_value) const;
 
     public:
-        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, TuningObjective tuning_objective, double best_objective_value, bool enable_early_stop)
-            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), tuning_objective_(tuning_objective), best_objective_value_(best_objective_value), enable_early_stop_(enable_early_stop) {}
+        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, TuningObjective tuning_objective, double best_objective_value, bool enable_early_stop, Logger& logger)
+            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), tuning_objective_(tuning_objective), best_objective_value_(best_objective_value), enable_early_stop_(enable_early_stop), logger_(logger) {}
 
         void run();
 };

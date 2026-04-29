@@ -572,11 +572,11 @@ void Expansion::updateParameterFlags(const std::vector<ClassifyParameterOutput>&
 
 #ifdef USE_MPI
 void ExpansionWorker::run() {
-    std::cout << "Expansion Worker " << worker_id_ << " starting expansion for iteration " << iteration_ << "." << std::endl;
+    logger_.info("Expansion Worker ", worker_id_, " starting expansion for iteration ", iteration_, ".");
     receiveConfigsToEvaluateFromMaster();
     evaluateConfigurations();
     sendConfigsResultToMaster();
-    std::cout << "Expansion Worker " << worker_id_ << " completed expansion." << std::endl;
+    logger_.info("Expansion Worker ", worker_id_, " completed expansion.");
 }
 
 void ExpansionWorker::receiveConfigsToEvaluateFromMaster() {
@@ -602,10 +602,9 @@ bool ExpansionWorker::isExpansionImprovement(double objective_value) const {
 }
 
 void ExpansionWorker::evaluateConfigurations() {
-    Logger logger(Verbosity::Normal, std::cout);
     auto evaluate_single_config = [&](int config_id, const std::string& config_file_path) -> double {
         CPLEXSolver solver(
-            logger,
+            logger_,
             instance_file_,
             config_file_path,
             solver_log_file_,
@@ -642,17 +641,18 @@ void ExpansionWorker::evaluateConfigurations() {
 
                 if (isExpansionImprovement(objective_value)) {
                     local_found_improvement = 1;
-                    std::cout << "Expansion Worker " << worker_id_
-                              << " found an improving configuration with objective value "
-                              << objective_value << "." << std::endl;
+                    logger_.info(
+                        "Expansion Worker ", worker_id_,
+                        " found an improving configuration with objective value ",
+                        objective_value, "."
+                    );
                 }
             }
 
             int global_early_stop = 0;
             MPI_Allreduce(&local_found_improvement, &global_early_stop, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
             if (global_early_stop != 0) {
-                std::cout << "Expansion Worker " << worker_id_
-                          << " stopping early after global MPI expansion stop was activated." << std::endl;
+                logger_.info("Expansion Worker ", worker_id_, " stopping early after global MPI expansion stop was activated.");
                 break;
             }
         }

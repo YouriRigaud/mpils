@@ -175,6 +175,8 @@ class Worker {
         int worker_id_;
         int worker_step_;                     ///< Current step of the worker (0: waiting order, 1: exploration, 2: expansion, 3: finished)
         int iteration_;                        ///< Current iteration of the tuning process
+        std::ofstream worker_log_file_;
+        Logger worker_logger_;
         std::string instance_file_;
         std::string solver_log_file_;
         int nb_threads_solver_;
@@ -192,6 +194,8 @@ class Worker {
 
         std::unique_ptr<LocalSearchWorker> local_search_worker_ = nullptr;
         std::unique_ptr<ExpansionWorker> expansion_worker_ = nullptr;
+
+        static std::ofstream openWorkerLogFile(int worker_id);
 
         void setLocalSearchWorker(std::unique_ptr<LocalSearchWorker> worker) {
             local_search_worker_ = std::move(worker);
@@ -216,6 +220,8 @@ class Worker {
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
+              worker_log_file_(openWorkerLogFile(worker_id)),
+              worker_logger_(Verbosity::Debug, worker_log_file_),
               instance_file_(instance_file),
               solver_log_file_(solver_log_file),
               nb_threads_solver_(nb_threads_solver),

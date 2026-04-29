@@ -249,6 +249,9 @@ void cleanTunerWorkingDirectory(const std::string& tuner_dir) {
         const std::string filename = path.filename().string();
 
         if (entry.is_directory()) {
+            if (filename == "worker_logs") {
+                continue;
+            }
             fs::remove_all(path);
             continue;
         }
@@ -379,13 +382,11 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
 }
 
 #ifdef USE_MPI
-void workerProcess(int argc, char** argv, int world_rank, TunerOptions options) {
+void workerProcess(int world_rank, TunerOptions options) {
     // init a clock to measure total tuning time
     GlobalTimer::start();
-    std::cout << "Worker process " << world_rank << " started." << std::endl;
     Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.solver_time_mode, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
     worker.run();
-    std::cout << "Worker process " << world_rank << " finished." << std::endl;
 }
 #endif
 
@@ -406,7 +407,7 @@ int main(int argc, char** argv) {
         if (world_rank == 0) {
             masterProcess(argc, argv, options);
         } else {
-            workerProcess(argc, argv, world_rank, options);
+            workerProcess(world_rank, options);
         }
         MPI_Finalize();
 #else

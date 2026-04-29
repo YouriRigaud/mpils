@@ -324,9 +324,10 @@ class LocalSearchWorker {
         std::uint32_t base_seed_;
         TuningObjective tuning_objective_;
         bool random_worker_initial_configs_;
+        Logger& logger_;
         
     public:
-        LocalSearchWorker(int worker_id, int iteration, TuningObjective tuning_objective, std::uint32_t base_seed, bool mip_start = false, bool produce_mip_starts = false, bool use_shared_cache = false, bool random_worker_initial_configs = true): worker_id_(worker_id), iteration_(iteration), use_mip_start_(mip_start), produce_mip_starts_(produce_mip_starts), nb_threads_solver_(0), cutoff_solver_time_(0.0), solver_time_mode_(SolverTimeMode::Seconds), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective), random_worker_initial_configs_(random_worker_initial_configs) {}
+        LocalSearchWorker(int worker_id, int iteration, TuningObjective tuning_objective, std::uint32_t base_seed, Logger& logger, bool mip_start = false, bool produce_mip_starts = false, bool use_shared_cache = false, bool random_worker_initial_configs = true): worker_id_(worker_id), iteration_(iteration), use_mip_start_(mip_start), produce_mip_starts_(produce_mip_starts), nb_threads_solver_(0), cutoff_solver_time_(0.0), solver_time_mode_(SolverTimeMode::Seconds), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective), random_worker_initial_configs_(random_worker_initial_configs), logger_(logger) {}
 
         LocalSearchWorker(
             int worker_id,
@@ -336,11 +337,12 @@ class LocalSearchWorker {
             SolverTimeMode solver_time_mode,
             TuningObjective tuning_objective,
             std::uint32_t base_seed,
+            Logger& logger,
             bool mip_start = false,
             bool produce_mip_starts = false,
             bool use_shared_cache = false,
             bool random_worker_initial_configs = true
-        ): worker_id_(worker_id), iteration_(iteration), use_mip_start_(mip_start), produce_mip_starts_(produce_mip_starts), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective), random_worker_initial_configs_(random_worker_initial_configs)
+        ): worker_id_(worker_id), iteration_(iteration), use_mip_start_(mip_start), produce_mip_starts_(produce_mip_starts), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), use_shared_cache_(use_shared_cache), base_seed_(base_seed), tuning_objective_(tuning_objective), random_worker_initial_configs_(random_worker_initial_configs), logger_(logger)
         {}
 
         virtual ~LocalSearchWorker() = default;
@@ -362,11 +364,12 @@ class ParamILSWorker : public LocalSearchWorker {
             int iteration,
             TuningObjective tuning_objective,
             std::uint32_t base_seed,
+            Logger& logger,
             SolverTimeMode solver_time_mode = SolverTimeMode::Seconds,
             bool mip_start = false,
             bool use_shared_cache = false,
             bool random_worker_initial_configs = true
-        ): LocalSearchWorker(worker_id, iteration, 0, 0.0, solver_time_mode, tuning_objective, base_seed, mip_start, false, use_shared_cache, random_worker_initial_configs)
+        ): LocalSearchWorker(worker_id, iteration, 0, 0.0, solver_time_mode, tuning_objective, base_seed, logger, mip_start, false, use_shared_cache, random_worker_initial_configs)
         {}
 
         void run() override {
@@ -396,11 +399,12 @@ class IteratedLocalSearchWorker : public LocalSearchWorker {
             std::string solver_log_file,
             TuningObjective tuning_objective,
             std::uint32_t base_seed,
+            Logger& logger,
             bool use_shared_cache,
             bool mip_start = false,
             bool produce_mip_starts = false,
             bool random_worker_initial_configs = true
-        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, tuning_objective, base_seed, mip_start, produce_mip_starts, use_shared_cache, random_worker_initial_configs), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
+        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, tuning_objective, base_seed, logger, mip_start, produce_mip_starts, use_shared_cache, random_worker_initial_configs), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
         {}
 
         void run() override {

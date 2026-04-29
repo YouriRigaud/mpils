@@ -96,6 +96,7 @@ void Tuner::createWorkingDirectories() {
     ensureDirectoryExists(tuner_dir_ + "param_ils/");
     ensureDirectoryExists(tuner_dir_ + "param_ils/parameter/");
     ensureDirectoryExists(tuner_dir_ + "param_ils/scenario/");
+    ensureDirectoryExists(tuner_dir_ + "worker_logs/");
     ensureDirectoryExists(tuner_dir_ + "pruning/");
     ensureDirectoryExists(tuner_dir_ + "pruning/input/");
     ensureDirectoryExists(tuner_dir_ + "pruning/output/");
@@ -268,6 +269,16 @@ void Tuner::run() {
 }
 
 #ifdef USE_MPI
+std::ofstream Worker::openWorkerLogFile(int worker_id) {
+    const std::string worker_log_file = buildTunerPath("worker_logs/worker_" + std::to_string(worker_id) + ".log");
+    ensureParentDirectoryForFile(worker_log_file);
+    std::ofstream log_file(worker_log_file, std::ios::app);
+    if (!log_file.is_open()) {
+        throw std::runtime_error("Could not open worker log file: " + worker_log_file);
+    }
+    return log_file;
+}
+
 void Tuner::sendStopOrderToWorkers() {
     logger_.info("Sending stop order to all worker processes.");
     WorkerOrder stop_order{};
@@ -278,7 +289,7 @@ void Tuner::sendStopOrderToWorkers() {
 }
 
 void Worker::run() {
-    std::cout << "Worker " << worker_id_ << " starting." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " starting.");
     while (true) {
         receiveOrderFromMaster();
         if (stopConditionMet()) {
@@ -290,7 +301,7 @@ void Worker::run() {
             runExpansionPhase();
         }
     }
-    std::cout << "Worker " << worker_id_ << " finished." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " finished.");
 }
 
 void Worker::receiveOrderFromMaster() {
@@ -307,11 +318,11 @@ void Worker::receiveOrderFromMaster() {
         expansion_best_objective_value_ = order.expansion_best_objective_value;
         expansion_enable_early_stop_ = order.expansion_enable_early_stop != 0;
     }
-    std::cout << "Worker " << worker_id_ << " received order for step " << worker_step_ << "." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " received order for step ", worker_step_, ".");
 }
 
 void Worker::runExplorationPhase() {
-    std::cout << "Worker " << worker_id_ << " running exploration phase for iteration " << iteration_ << "." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " running exploration phase for iteration ", iteration_, ".");
     const bool use_mip_start = enable_mip_starts_ && worker_id_ == 1;
     const bool produce_mip_start = enable_mip_starts_;
     switch (local_search_backend_) {
@@ -327,6 +338,7 @@ void Worker::runExplorationPhase() {
                 solver_log_file_,
                 tuning_objective_,
                 base_seed_,
+                worker_logger_,
                 use_shared_cache_,
                 use_mip_start,
                 produce_mip_start,
@@ -339,6 +351,7 @@ void Worker::runExplorationPhase() {
                 iteration_,
                 tuning_objective_,
                 base_seed_,
+                worker_logger_,
                 solver_time_mode_,
                 use_mip_start,
                 use_shared_cache_,
@@ -349,13 +362,13 @@ void Worker::runExplorationPhase() {
     local_search_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state
-    std::cout << "Worker " << worker_id_ << " completed exploration phase." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " completed exploration phase.");
 }
 
 void Worker::runExpansionPhase() {
-    std::cout << "Worker " << worker_id_ << " running expansion phase for iteration " << iteration_ << "." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " running expansion phase for iteration ", iteration_, ".");
     std::string solver_log_file_worker = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_);
-    std::cout << "Worker " << worker_id_ << " will use solver log file: " << solver_log_file_worker << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " will use solver log file: ", solver_log_file_worker);
     // Implementation of expansion phase logic
     setExpansionWorker(std::make_unique<ExpansionWorker>(
         worker_id_,
@@ -367,11 +380,12 @@ void Worker::runExpansionPhase() {
         solver_time_mode_,
         tuning_objective_,
         expansion_best_objective_value_,
-        expansion_enable_early_stop_
+        expansion_enable_early_stop_,
+        worker_logger_
     ));
     expansion_worker_->run();
     MPI_Barrier(MPI_COMM_WORLD); // Ensure all workers finish before proceeding
     worker_step_ = 0; // Set to waiting state
-    std::cout << "Worker " << worker_id_ << " completed expansion phase." << std::endl;
+    worker_logger_.info("Worker ", worker_id_, " completed expansion phase.");
 }
 #endif

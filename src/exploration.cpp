@@ -1216,7 +1216,7 @@ void ParamILSWorker::callParamILS() {
     std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
     int ret = system(command.c_str());
     if (ret != 0) {
-        std::cout << "Error calling ParamILS executable for worker " << worker_id_ << " at iteration " << iteration_ << std::endl;
+        logger_.info("Error calling ParamILS executable for worker ", worker_id_, " at iteration ", iteration_);
     }
 }
 
@@ -1244,7 +1244,6 @@ void LocalSearchEngine::waitLocalSearchWorkers() {
 void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     int nb_workers = 0;
     MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
-    Logger worker_logger(Verbosity::Debug, std::cout);
     const std::string search_space_file =
         random_worker_initial_configs_ && worker_id_ > 0
             ? ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt"
@@ -1254,15 +1253,15 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     if (produce_mip_starts_) {
         mip_start_info = readCurrentMipStartInfoFile(
             buildCurrentMipStartInfoFilePath(ils_working_dir_, iteration_),
-            worker_logger
+            logger_
         );
     }
     if (use_mip_start_ && worker_id_ == 1 && iteration_ > 1) {
         mip_start_file_ = mip_start_info.mip_start_file;
         used_mip_start_id = mip_start_info.mip_start_id;
-        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
+        logger_.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);
     } else {
-        worker_logger.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file. Current best MIP-start upper bound threshold is ", mip_start_info.best_upper_bound, ".");
+        logger_.info("Worker ", worker_id_, " at iteration ", iteration_, " will not use a MIP start file. Current best MIP-start upper bound threshold is ", mip_start_info.best_upper_bound, ".");
     }
 
     IteratedLocalSearch::Options ils_options;
@@ -1282,7 +1281,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
         const std::string historical_cache_seed_file =
             buildHistoricalCacheSeedFilePath(ils_working_dir_, iteration_);
         ils_options.shared_cache_seed_entries =
-            readHistoricalCacheSeedEntriesFromFile(historical_cache_seed_file, worker_logger);
+            readHistoricalCacheSeedEntriesFromFile(historical_cache_seed_file, logger_);
     }
     ils_options.use_mip_starts = use_mip_start_ && !mip_start_file_.empty();
     if (ils_options.use_mip_starts) {
@@ -1296,7 +1295,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.solver_time_mode = solver_time_mode_;
     ils_options.tuning_objective = tuning_objective_;
 
-    IteratedLocalSearch ils(worker_logger, ils_options);
+    IteratedLocalSearch ils(logger_, ils_options);
     ils.run();
 
     const auto local_results = ils.getEvaluationsWithConfigurations();
@@ -1306,7 +1305,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ensureParentDirectoryForFile(local_results_file);
     std::ofstream myfile(local_results_file);
     if (!myfile.is_open()) {
-        worker_logger.info("Error opening local results file for writing: ", local_results_file);
+        logger_.info("Error opening local results file for writing: ", local_results_file);
         return;
     }
     for (const auto& pair : local_results) {
