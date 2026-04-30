@@ -203,6 +203,7 @@ void Expansion::addToEvaluateParameters(
     std::optional<double> gap,
     std::optional<double> upper_bound,
     std::optional<double> lower_bound,
+    std::optional<double> solver_runtime_seconds,
     int evaluated_time,
     int worker_id,
     std::vector<EvaluateParameterOutput>& evaluation_outputs
@@ -224,6 +225,7 @@ void Expansion::addToEvaluateParameters(
     options.gap = gap;
     options.upper_bound = upper_bound;
     options.lower_bound = lower_bound;
+    options.solver_runtime_seconds = solver_runtime_seconds;
     options.time_evaluated = evaluated_time;
     options.worker_id = worker_id;
     options.iteration = iteration_;
@@ -289,10 +291,11 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         std::optional<double> gap = solver.getGap();
         std::optional<double> upper_bound = solver.getUpperBound();
         std::optional<double> lower_bound = solver.getLowerBound();
+        std::optional<double> solver_runtime_seconds = solver.getSolveTimeSeconds();
         int evaluated_time = GlobalTimer::elapsedSeconds();
 
         const auto& create_output = configuration_files_outputs[config_id];
-        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, gap, upper_bound, lower_bound, evaluated_time, 0, evaluation_outputs);
+        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, gap, upper_bound, lower_bound, solver_runtime_seconds, evaluated_time, 0, evaluation_outputs);
 
         return objective_value;
     };
@@ -362,6 +365,8 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             double upper_bound_value = 0.0;
             int has_lower_bound;
             double lower_bound_value = 0.0;
+            int has_solver_runtime;
+            double solver_runtime_value = 0.0;
             int evaluated_time;
             MPI_Recv(&config_id, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
             MPI_Recv(&objective_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
@@ -377,6 +382,10 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             if (has_lower_bound != 0) {
                 MPI_Recv(&lower_bound_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
             }
+            MPI_Recv(&has_solver_runtime, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
+            if (has_solver_runtime != 0) {
+                MPI_Recv(&solver_runtime_value, 1, MPI_DOUBLE, worker_id, 0, MPI_COMM_WORLD, &status);
+            }
             MPI_Recv(&evaluated_time, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
 
             const auto& create_output = configuration_files_outputs[config_id];
@@ -387,6 +396,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
                 has_gap != 0 ? std::optional<double>(gap_value) : std::nullopt,
                 has_upper_bound != 0 ? std::optional<double>(upper_bound_value) : std::nullopt,
                 has_lower_bound != 0 ? std::optional<double>(lower_bound_value) : std::nullopt,
+                has_solver_runtime != 0 ? std::optional<double>(solver_runtime_value) : std::nullopt,
                 evaluated_time,
                 worker_id,
                 evaluation_outputs
@@ -625,9 +635,10 @@ void ExpansionWorker::evaluateConfigurations() {
         std::optional<double> gap = solver.getGap();
         std::optional<double> upper_bound = solver.getUpperBound();
         std::optional<double> lower_bound = solver.getLowerBound();
+        std::optional<double> solver_runtime_seconds = solver.getSolveTimeSeconds();
         int elapsed_time = GlobalTimer::elapsedSeconds();
 
-        evaluation_results_.push_back({config_id, objective_value, elapsed_time, gap, upper_bound, lower_bound});
+        evaluation_results_.push_back({config_id, objective_value, elapsed_time, gap, upper_bound, lower_bound, solver_runtime_seconds});
         return objective_value;
     };
 
@@ -684,6 +695,8 @@ void ExpansionWorker::sendConfigsResultToMaster() {
         double upper_bound_value = result.upper_bound.value_or(0.0);
         int has_lower_bound = result.lower_bound.has_value() ? 1 : 0;
         double lower_bound_value = result.lower_bound.value_or(0.0);
+        int has_solver_runtime = result.solver_runtime_seconds.has_value() ? 1 : 0;
+        double solver_runtime_value = result.solver_runtime_seconds.value_or(0.0);
         int evaluated_time = result.evaluated_time;
         MPI_Send(&config_id, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&objective_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
@@ -698,6 +711,10 @@ void ExpansionWorker::sendConfigsResultToMaster() {
         MPI_Send(&has_lower_bound, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
         if (has_lower_bound != 0) {
             MPI_Send(&lower_bound_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+        }
+        MPI_Send(&has_solver_runtime, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+        if (has_solver_runtime != 0) {
+            MPI_Send(&solver_runtime_value, 1, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
         }
         MPI_Send(&evaluated_time, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
     }

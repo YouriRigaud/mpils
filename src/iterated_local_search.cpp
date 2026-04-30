@@ -801,6 +801,7 @@ void IteratedLocalSearch::injectInitialConfigurationIfAlreadyEvaluated_() {
     initial_record.gap = std::nullopt;
     initial_record.upper_bound = std::nullopt;
     initial_record.lower_bound = std::nullopt;
+    initial_record.solver_runtime_seconds = std::nullopt;
     initial_record.time_evaluated = GlobalTimer::elapsedSeconds();
     initial_record.configuration_id = current_configuration_.getConfigurationId();
     initial_record.mip_start_used = current_configuration_.useMipStart();
@@ -953,6 +954,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
     std::optional<double> gap = std::nullopt;
     std::optional<double> upper_bound = std::nullopt;
     std::optional<double> lower_bound = std::nullopt;
+    std::optional<double> solver_runtime_seconds = std::nullopt;
     std::string produced_mip_start_file;
 
     if (options_.produce_mip_starts) {
@@ -979,6 +981,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
         gap = solver.getGap();
         upper_bound = solver.getUpperBound();
         lower_bound = solver.getLowerBound();
+        solver_runtime_seconds = solver.getSolveTimeSeconds();
     } else {
         std::string empty_mip_start_file;
         CPLEXSolver solver(
@@ -999,6 +1002,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
         gap = solver.getGap();
         upper_bound = solver.getUpperBound();
         lower_bound = solver.getLowerBound();
+        solver_runtime_seconds = solver.getSolveTimeSeconds();
     }
 
     const bool produced_mip_start = options_.produce_mip_starts && wouldImproveMipStartUpperBound_(upper_bound);
@@ -1008,7 +1012,7 @@ EvaluationRecord IteratedLocalSearch::runSolverAndCreateRecord_(const Configurat
         produced_mip_start_file.clear();
     }
 
-    return createEvaluationRecord_(config, objective_value, gap, upper_bound, lower_bound, produced_mip_start, produced_mip_start_file);
+    return createEvaluationRecord_(config, objective_value, gap, upper_bound, lower_bound, solver_runtime_seconds, produced_mip_start, produced_mip_start_file);
 }
 
 EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
@@ -1017,6 +1021,7 @@ EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
     std::optional<double> gap,
     std::optional<double> upper_bound,
     std::optional<double> lower_bound,
+    std::optional<double> solver_runtime_seconds,
     bool produced_mip_start,
     const std::string& produced_mip_start_file
 ) {
@@ -1026,6 +1031,7 @@ EvaluationRecord IteratedLocalSearch::createEvaluationRecord_(
     record.gap = gap;
     record.upper_bound = upper_bound;
     record.lower_bound = lower_bound;
+    record.solver_runtime_seconds = solver_runtime_seconds;
     record.time_evaluated = GlobalTimer::elapsedSeconds();
     record.configuration_id = config.getConfigurationId();
 
@@ -1051,6 +1057,7 @@ EvaluationRecord IteratedLocalSearch::createSharedEvaluationRecord_(const Config
     record.gap = std::nullopt;
     record.upper_bound = std::nullopt;
     record.lower_bound = std::nullopt;
+    record.solver_runtime_seconds = std::nullopt;
     record.time_evaluated = GlobalTimer::elapsedSeconds();
     record.configuration_id = config.getConfigurationId();
 

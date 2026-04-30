@@ -79,6 +79,7 @@ class Solver {
         virtual std::optional<double> getGap() = 0; // Pure virtual function to get the raw gap value
         virtual std::optional<double> getUpperBound() = 0; // Pure virtual function to get the best solution value
         virtual std::optional<double> getLowerBound() = 0; // Pure virtual function to get the best bound value
+        virtual double getSolveTimeSeconds() const = 0; // Pure virtual function to get the solver runtime in seconds
 };
 
 
@@ -147,6 +148,7 @@ class CPLEXSolver : public Solver {
         std::optional<double> getGap() override;
         std::optional<double> getUpperBound() override;
         std::optional<double> getLowerBound() override;
+        double getSolveTimeSeconds() const override;
 };
 
 

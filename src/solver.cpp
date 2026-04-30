@@ -147,3 +147,7 @@ std::optional<double> CPLEXSolver::getUpperBound() {
 std::optional<double> CPLEXSolver::getLowerBound() {
     return lower_bound_;
 }
+
+double CPLEXSolver::getSolveTimeSeconds() const {
+    return time_sec_;
+}

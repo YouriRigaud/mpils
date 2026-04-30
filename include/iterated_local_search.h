@@ -305,6 +305,7 @@ class IteratedLocalSearch {
             std::optional<double> gap = std::nullopt,
             std::optional<double> upper_bound = std::nullopt,
             std::optional<double> lower_bound = std::nullopt,
+            std::optional<double> solver_runtime_seconds = std::nullopt,
             bool produced_mip_start = false,
             const std::string& produced_mip_start_file = ""
         );

@@ -88,6 +88,7 @@ struct ExpansionEvaluationResult {
     std::optional<double> gap;
     std::optional<double> upper_bound;
     std::optional<double> lower_bound;
+    std::optional<double> solver_runtime_seconds;
 };
 
 struct ClassifyParameterOutput {
@@ -172,6 +173,7 @@ class Expansion {
             std::optional<double> gap,
             std::optional<double> upper_bound,
             std::optional<double> lower_bound,
+            std::optional<double> solver_runtime_seconds,
             int evaluated_time,
             int worker_id,
             std::vector<EvaluateParameterOutput>& evaluation_outputs

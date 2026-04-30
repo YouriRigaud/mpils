@@ -629,6 +629,9 @@ const std::vector<EvaluationRecord> LocalSearchEngine::parseCplexResultsFromLogF
         }
         options.upper_bound = std::nullopt;
         options.lower_bound = std::nullopt;
+        if (time_sec >= 0) {
+            options.solver_runtime_seconds = time_sec;
+        }
         options.time_evaluated = config_elapsed_time;
         options.worker_id = worker_id;
         options.phase = 0; // Phase 0 for exploration
@@ -970,6 +973,7 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
         options.gap = local_record.gap;
         options.upper_bound = local_record.upper_bound;
         options.lower_bound = local_record.lower_bound;
+        options.solver_runtime_seconds = local_record.solver_runtime_seconds;
         options.time_evaluated = local_record.time_evaluated;
         options.worker_id = worker_id;
         options.iteration = iteration_;
@@ -1113,6 +1117,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
     std::optional<double> gap = std::nullopt;
     std::optional<double> upper_bound = std::nullopt;
     std::optional<double> lower_bound = std::nullopt;
+    std::optional<double> solver_runtime_seconds = std::nullopt;
     int time_evaluated = -1;
     bool mip_start_used = false;
     std::optional<MipStartId> used_mip_start_id = std::nullopt;
@@ -1131,6 +1136,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             gap = std::nullopt;
             upper_bound = std::nullopt;
             lower_bound = std::nullopt;
+            solver_runtime_seconds = std::nullopt;
             time_evaluated = -1;
             mip_start_used = false;
             used_mip_start_id = std::nullopt;
@@ -1150,6 +1156,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             record.gap = gap;
             record.upper_bound = upper_bound;
             record.lower_bound = lower_bound;
+            record.solver_runtime_seconds = solver_runtime_seconds;
             record.time_evaluated = time_evaluated;
             record.configuration_id = 0;
             record.mip_start_used = mip_start_used;
@@ -1183,6 +1190,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             upper_bound = std::stod(value);
         } else if (key == "LowerBound") {
             lower_bound = std::stod(value);
+        } else if (key == "SolverRuntimeSeconds") {
+            solver_runtime_seconds = std::stod(value);
         } else if (key == "TimeEvaluated") {
             time_evaluated = std::stoi(value);
         } else if (key == "MipStartUsed") {
@@ -1326,6 +1335,9 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
         }
         if (record.lower_bound.has_value()) {
             myfile << "LowerBound=" << record.lower_bound.value() << std::endl;
+        }
+        if (record.solver_runtime_seconds.has_value()) {
+            myfile << "SolverRuntimeSeconds=" << record.solver_runtime_seconds.value() << std::endl;
         }
         myfile << "TimeEvaluated=" << record.time_evaluated << std::endl;
         myfile << "MipStartUsed=" << record.mip_start_used << std::endl;
