@@ -17,7 +17,7 @@
 #include <cmath>
 #include <limits>
 
-void Expansion::run() {
+ExpansionRunStats Expansion::run() {
     logger_.info("Starting expansion phase...");
 
     best_objective_value_ = memory_.getBestObjectiveWithoutMipStart();
@@ -25,7 +25,7 @@ void Expansion::run() {
     const std::vector<std::reference_wrapper<Parameter>> expansion_parameters = selectParameters();
     if (expansion_parameters.empty()) {
         logger_.info("No expansion parameters selected, skipping expansion.");
-        return;
+        return {};
     }
     logger_.info("Selected expansion parameters: ", expansion_parameters.size());
 
@@ -83,6 +83,12 @@ void Expansion::run() {
 
 
     logger_.info("Expansion phase completed.");
+    return ExpansionRunStats{
+        total_configs,
+        count_selected,
+        count_discarded,
+        static_cast<int>(preparation_output.skipped_parameters.size())
+    };
 }
 
 const std::vector<std::reference_wrapper<Parameter>> Expansion::selectParameters() {

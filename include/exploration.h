@@ -20,6 +20,10 @@
 #include <cstdint>
 #include <optional>
 
+struct ExplorationRunStats {
+    int evaluations_added = 0;
+};
+
 class LocalSearchEngine {
     protected:
         TunerMemory& memory_;
@@ -307,7 +311,7 @@ class Exploration {
         }
 
 
-        void run();
+        ExplorationRunStats run();
 };
 
 #ifdef USE_MPI

@@ -96,6 +96,13 @@ struct ClassifyParameterOutput {
     bool toDiscard;
 };
 
+struct ExpansionRunStats {
+    int evaluations_added = 0;
+    int parameters_selected = 0;
+    int parameters_discarded = 0;
+    int parameters_skipped = 0;
+};
+
 class Expansion {
     private:
         struct ParameterClassificationMetrics {
@@ -211,7 +218,7 @@ class Expansion {
            enable_early_stop_(enable_early_stop)
         {}
 
-        void run();
+        ExpansionRunStats run();
 };
 
 #ifdef USE_MPI

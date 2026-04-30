@@ -9,19 +9,87 @@
 #include "../include/working_directory.h"
 
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <algorithm>
+#include <cstdio>
+#include <fcntl.h>
+#include <unistd.h>
 
-void Pruning::run() {
+namespace {
+
+class ScopedStdoutStderrRedirect {
+    private:
+        int saved_stdout_ = -1;
+        int saved_stderr_ = -1;
+        int log_fd_ = -1;
+
+        void restore() {
+            std::cout.flush();
+            std::cerr.flush();
+            std::fflush(stdout);
+            std::fflush(stderr);
+
+            if (saved_stdout_ >= 0) {
+                dup2(saved_stdout_, STDOUT_FILENO);
+                close(saved_stdout_);
+                saved_stdout_ = -1;
+            }
+            if (saved_stderr_ >= 0) {
+                dup2(saved_stderr_, STDERR_FILENO);
+                close(saved_stderr_);
+                saved_stderr_ = -1;
+            }
+            if (log_fd_ >= 0) {
+                close(log_fd_);
+                log_fd_ = -1;
+            }
+        }
+
+    public:
+        explicit ScopedStdoutStderrRedirect(const std::string& log_file) {
+            ensureParentDirectoryForFile(log_file);
+            std::cout.flush();
+            std::cerr.flush();
+            std::fflush(stdout);
+            std::fflush(stderr);
+
+            saved_stdout_ = dup(STDOUT_FILENO);
+            saved_stderr_ = dup(STDERR_FILENO);
+            log_fd_ = open(log_file.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+
+            if (saved_stdout_ < 0 || saved_stderr_ < 0 || log_fd_ < 0) {
+                restore();
+                throw std::runtime_error("Could not redirect learner output to: " + log_file);
+            }
+
+            if (dup2(log_fd_, STDOUT_FILENO) < 0 || dup2(log_fd_, STDERR_FILENO) < 0) {
+                restore();
+                throw std::runtime_error("Could not redirect learner output to: " + log_file);
+            }
+        }
+
+        ScopedStdoutStderrRedirect(const ScopedStdoutStderrRedirect&) = delete;
+        ScopedStdoutStderrRedirect& operator=(const ScopedStdoutStderrRedirect&) = delete;
+
+        ~ScopedStdoutStderrRedirect() {
+            restore();
+        }
+};
+
+} // namespace
+
+PruningRunStats Pruning::run() {
     logger_.info("Starting pruning phase...");
 
     std::vector<std::vector<std::pair<std::string, Value>>> forbidden_tuples = extractForbiddenTuples();
 
-    applyPruning(forbidden_tuples);
+    PruningRunStats stats = applyPruning(forbidden_tuples);
     
 
     logger_.info("Pruning phase completed.");
+    return stats;
 }
 
 void Pruning::writeLearnerFile(const std::string& learner_file) {
@@ -65,7 +133,12 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
 
     Learner learner;
     std::string table_name = "iteration_" + std::to_string(iteration_) + "_";
-    learner.call_learning_model(learner_file, table_name, options_learner);
+    const std::string learner_log_file = buildTunerPath("pruning/learner_iteration_" + std::to_string(iteration_) + ".log");
+    logger_.info("Redirecting learner stdout/stderr to: ", learner_log_file);
+    {
+        ScopedStdoutStderrRedirect learner_output_redirect(learner_log_file);
+        learner.call_learning_model(learner_file, table_name, options_learner);
+    }
 
     // Output files
     std::vector<std::string> output_files = {
@@ -131,8 +204,9 @@ std::vector<std::vector<std::pair<std::string, Value>>> Pruning::extractForbidde
 }
 
 
-void Pruning::applyPruning(std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples) {
+PruningRunStats Pruning::applyPruning(std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples) {
     logger_.info("Applying pruning with ", forbidden_tuples.size(), " forbidden tuples...");
+    PruningRunStats stats;
 
     for (const auto& tuple : forbidden_tuples) {
         if (tuple.size() == 0) {
@@ -142,15 +216,18 @@ void Pruning::applyPruning(std::vector<std::vector<std::pair<std::string, Value>
         if (tuple.size() == 1) {
             logger_.debug("Adding forbidden value from single-element tuple: ", tuple[0].first, "=", tuple[0].second.getString());
             parameter_space_.addForbiddenValue(tuple[0].first, tuple[0].second);
+            stats.pruned_options++;
         } else {
             logger_.debug("Adding forbidden tuple of size ", tuple.size(), ": ");
             for (const auto& pair : tuple) {
                 logger_.debug("  ", pair.first, "=", pair.second.getString());
             }
             parameter_space_.addForbiddenTuple(tuple);
+            stats.pruned_tuples++;
         }
 
     }
 
     logger_.info("Pruning applied successfully.");
+    return stats;
 }

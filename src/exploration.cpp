@@ -233,7 +233,7 @@ int Exploration::selectNumberOfEvaluations() {
     return factor * parameter_space_.getSelectedParameters().size();
 }
 
-void Exploration::run() {
+ExplorationRunStats Exploration::run() {
     logger_.info("Starting exploration phase...");
     int nb_evaluations = 0;
     if (number_of_evaluations_override_.has_value()) {
@@ -344,6 +344,7 @@ void Exploration::run() {
     logger_.info("Added", nb_evaluations, " evaluations to memory from exploration phase at iteration ", iteration_);
 
     logger_.info("Exploration phase completed.");
+    return ExplorationRunStats{nb_evaluations};
 }
 
 std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run() {

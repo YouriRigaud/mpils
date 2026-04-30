@@ -11,6 +11,11 @@
 #include "parameter_space.h"
 #include "configuration.h"
 
+struct PruningRunStats {
+    int pruned_options = 0;
+    int pruned_tuples = 0;
+};
+
 class Pruning {
     private:
         Logger& logger_;
@@ -22,7 +27,7 @@ class Pruning {
 
         std::vector<std::vector<std::pair<std::string, Value>>> extractForbiddenTuples();
         
-        void applyPruning(std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples);
+        PruningRunStats applyPruning(std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples);
 
     public:
         Pruning(
@@ -36,7 +41,7 @@ class Pruning {
            iteration_(iteration)
         {}
 
-        void run();
+        PruningRunStats run();
 };
 
 #endif // PRUNING_H

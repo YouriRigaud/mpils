@@ -5,6 +5,7 @@
 
 #include "../include/tuner.h"
 #include "../include/filesystem_utils.h"
+#include "../include/globaltimer.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -15,6 +16,50 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
+
+namespace {
+
+void printProgressLine(const std::string& message) {
+    std::cout << message << std::endl;
+}
+
+int elapsedSince(int start_time_seconds) {
+    return GlobalTimer::elapsedSeconds() - start_time_seconds;
+}
+
+void printPhaseStarted(int iteration, const std::string& phase) {
+    std::cout << "Iteration " << iteration << " | " << phase << " started" << std::endl;
+}
+
+void printExplorationCompleted(int iteration, const ExplorationRunStats& stats, int elapsed_seconds) {
+    std::cout << "Iteration " << iteration
+              << " | exploration completed"
+              << " | evaluations: " << stats.evaluations_added
+              << " | time: " << elapsed_seconds << "s"
+              << std::endl;
+}
+
+void printExpansionCompleted(int iteration, const ExpansionRunStats& stats, int elapsed_seconds) {
+    std::cout << "Iteration " << iteration
+              << " | expansion completed"
+              << " | evaluations: " << stats.evaluations_added
+              << " | selected: " << stats.parameters_selected
+              << " | discarded: " << stats.parameters_discarded
+              << " | skipped: " << stats.parameters_skipped
+              << " | time: " << elapsed_seconds << "s"
+              << std::endl;
+}
+
+void printPruningCompleted(int iteration, const PruningRunStats& stats, int elapsed_seconds) {
+    std::cout << "Iteration " << iteration
+              << " | pruning completed"
+              << " | pruned options: " << stats.pruned_options
+              << " | pruned tuples: " << stats.pruned_tuples
+              << " | time: " << elapsed_seconds << "s"
+              << std::endl;
+}
+
+} // namespace
 
 Parameter getParameterFromLine(const std::string& line) {
     // The line is formatted as: name value1 value2 ... [default_value]
@@ -226,9 +271,13 @@ void Tuner::run() {
     logger_.info("Running the MPILS tuner");
     while (true) {
         logger_.info("Starting iteration ", iteration_);
+        printProgressLine("Iteration " + std::to_string(iteration_) + " started");
 
         // Exploration phase
-        exploration_.run();
+        printPhaseStarted(iteration_, "exploration");
+        int phase_start_time = GlobalTimer::elapsedSeconds();
+        const ExplorationRunStats exploration_stats = exploration_.run();
+        printExplorationCompleted(iteration_, exploration_stats, elapsedSince(phase_start_time));
 
         if (exploration_only_) {
             logger_.info("Stopping after exploration phase because exploration-only mode is enabled.");
@@ -247,7 +296,10 @@ void Tuner::run() {
         }
 
         // Expansion phase
-        expansion_.run();
+        printPhaseStarted(iteration_, "expansion");
+        phase_start_time = GlobalTimer::elapsedSeconds();
+        const ExpansionRunStats expansion_stats = expansion_.run();
+        printExpansionCompleted(iteration_, expansion_stats, elapsedSince(phase_start_time));
 
         // Check stopping condition
         if (memory_.hasEvaluationAtOrBelowGap(0.0)) {
@@ -259,13 +311,25 @@ void Tuner::run() {
         }
 
         // Pruning phase
-        pruning_.run();
+        printPhaseStarted(iteration_, "pruning");
+        phase_start_time = GlobalTimer::elapsedSeconds();
+        const PruningRunStats pruning_stats = pruning_.run();
+        printPruningCompleted(iteration_, pruning_stats, elapsedSince(phase_start_time));
         
         
         logger_.info("Completed iteration ", iteration_);
+        std::cout << "Iteration " << iteration_
+                  << " completed"
+                  << " | best objective: " << getBestObjective()
+                  << " | elapsed: " << GlobalTimer::elapsedSeconds() << "s"
+                  << std::endl;
         iteration_++;
     }
     logger_.info("Tuner run complete.");
+    std::cout << "Tuning completed"
+              << " | best objective: " << getBestObjective()
+              << " | elapsed: " << GlobalTimer::elapsedSeconds() << "s"
+              << std::endl;
 }
 
 #ifdef USE_MPI
