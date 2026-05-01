@@ -19,10 +19,36 @@
 #include <string>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 
 struct ExplorationRunStats {
     int evaluations_added = 0;
 };
+
+enum class MipStartInitialConfigPolicy {
+    ProducerConfig,
+    BestConfig
+};
+
+inline std::string mipStartInitialConfigPolicyToString(MipStartInitialConfigPolicy policy) {
+    switch (policy) {
+        case MipStartInitialConfigPolicy::ProducerConfig:
+            return "producer_config";
+        case MipStartInitialConfigPolicy::BestConfig:
+            return "best_config";
+    }
+    throw std::runtime_error("Unknown MIP-start initial configuration policy.");
+}
+
+inline MipStartInitialConfigPolicy parseMipStartInitialConfigPolicy(const std::string& value) {
+    if (value == "producer_config") {
+        return MipStartInitialConfigPolicy::ProducerConfig;
+    }
+    if (value == "best_config") {
+        return MipStartInitialConfigPolicy::BestConfig;
+    }
+    throw std::runtime_error("Unknown MIP-start initial configuration policy: " + value);
+}
 
 class LocalSearchEngine {
     protected:
@@ -44,9 +70,11 @@ class LocalSearchEngine {
         TuningObjective tuning_objective_;
         std::uint32_t base_seed_;
         bool random_worker_initial_configs_;
+        MipStartInitialConfigPolicy mip_start_initial_config_policy_;
         MipStartId used_mip_start_id_;
         std::string mip_start_file_;
 
+        const Configuration& getInitialConfigurationForWorker(int worker_id) const;
         const std::vector<EvaluationRecord> parseCplexResultsFromLogFile(int run_obj, int worker_id);
 
         void setMipStartFile();
@@ -74,7 +102,8 @@ class LocalSearchEngine {
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
             bool mip_start = false,
-            bool random_worker_initial_configs = true
+            bool random_worker_initial_configs = true,
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
         ): memory_(memory),
            logger_(logger),
            initial_configurations_(initial_configurations),
@@ -92,6 +121,7 @@ class LocalSearchEngine {
            tuning_objective_(tuning_objective),
            base_seed_(base_seed),
            random_worker_initial_configs_(random_worker_initial_configs),
+           mip_start_initial_config_policy_(mip_start_initial_config_policy),
            used_mip_start_id_(0)
         {}
 
@@ -108,7 +138,6 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
         const std::string ils_working_dir_ = buildTunerPath("iterated_local_search/");
         std::string search_space_file_;
 
-        const Configuration& getInitialConfigurationForWorker_(int worker_id) const;
         std::string getILSSearchSpaceFilePath_(int worker_id) const;
         void writeILSSearchSpaceFile(int worker_id);
         void writeILSParameterOptionsToFile(std::ofstream& myfile, int worker_id);
@@ -147,8 +176,9 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
             bool mip_start = false,
-            bool random_worker_initial_configs = true
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs),
+            bool random_worker_initial_configs = true,
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs, mip_start_initial_config_policy),
            use_shared_cache_(use_shared_cache)
         {}
 
@@ -194,8 +224,9 @@ class ParamILSEngine : public LocalSearchEngine {
             int nb_workers,
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
-            bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, nb_workers, base_seed, tuning_objective, mip_start)
+            bool mip_start = false,
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, nb_workers, base_seed, tuning_objective, mip_start, true, mip_start_initial_config_policy)
         {}
 
         std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override;
@@ -226,8 +257,9 @@ class RandomLocalSearch : public LocalSearchEngine {
             int nb_workers,
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
-            bool mip_start = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, nb_workers, base_seed, tuning_objective, mip_start)
+            bool mip_start = false,
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, nb_workers, base_seed, tuning_objective, mip_start, true, mip_start_initial_config_policy)
         {}
 
         std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override {
@@ -256,6 +288,7 @@ class Exploration {
         std::optional<int> exploration_budget_divisor_;
         bool enable_mip_starts_;
         bool random_worker_initial_configs_;
+        MipStartInitialConfigPolicy mip_start_initial_config_policy_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -284,7 +317,8 @@ class Exploration {
             std::optional<int> number_of_evaluations_override = std::nullopt,
             std::optional<int> exploration_budget_divisor = std::nullopt,
             bool enable_mip_starts = true,
-            bool random_worker_initial_configs = true
+            bool random_worker_initial_configs = true,
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -303,7 +337,8 @@ class Exploration {
            number_of_evaluations_override_(number_of_evaluations_override),
            exploration_budget_divisor_(exploration_budget_divisor),
            enable_mip_starts_(enable_mip_starts),
-           random_worker_initial_configs_(random_worker_initial_configs)
+           random_worker_initial_configs_(random_worker_initial_configs),
+           mip_start_initial_config_policy_(mip_start_initial_config_policy)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {

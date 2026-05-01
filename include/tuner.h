@@ -47,6 +47,7 @@ class Tuner {
         const int max_iterations_;               ///< Maximum number of tuner iterations
         const bool enable_mip_starts_;           ///< Whether exploration can use MIP starts
         const bool random_worker_initial_configs_; ///< Whether MPI ILS workers use per-rank initial configs
+        const MipStartInitialConfigPolicy mip_start_initial_config_policy_; ///< Initial configuration policy for the MIP-start worker
         const ExpansionSelectRule expansion_select_rule_; ///< Comparison rule used by expansion selection
         const ExpansionValueStrategy expansion_value_strategy_; ///< Value selection strategy used by expansion
         const double expansion_max_deviation_;   ///< Maximum allowed deviation for expansion classification
@@ -101,6 +102,7 @@ class Tuner {
             int max_iterations = 15,
             bool enable_mip_starts = true,
             bool random_worker_initial_configs = true,
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
             ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict,
             ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast,
             double expansion_max_deviation = std::numeric_limits<double>::max(),
@@ -124,13 +126,14 @@ class Tuner {
             max_iterations_(max_iterations),
             enable_mip_starts_(enable_mip_starts),
             random_worker_initial_configs_(random_worker_initial_configs),
+            mip_start_initial_config_policy_(mip_start_initial_config_policy),
             expansion_select_rule_(expansion_select_rule),
             expansion_value_strategy_(expansion_value_strategy),
             expansion_max_deviation_(expansion_max_deviation),
             expansion_enable_early_stop_(expansion_enable_early_stop),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_, expansion_enable_early_stop_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}

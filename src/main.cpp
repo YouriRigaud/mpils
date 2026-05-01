@@ -47,6 +47,7 @@ struct TunerOptions {
     int max_iterations = 15;
     bool enable_mip_starts = true;
     bool random_worker_initial_configs = true;
+    MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig;
     ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict;
     ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast;
     double expansion_max_deviation = std::numeric_limits<double>::max();
@@ -85,6 +86,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --exploration-only              Stop after the exploration phase" << std::endl;
     std::cout << "  --enable-mip-starts             Enable MIP starts during exploration when applicable" << std::endl;
     std::cout << "  --disable-mip-starts            Disable MIP starts during exploration" << std::endl;
+    std::cout << "  --mip-start-initial-config MODE Set MIP-start worker initial config (producer_config or best_config)" << std::endl;
     std::cout << "  --random-worker-initial-configs Enable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << "  --no-random-worker-initial-configs Disable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << std::endl;
@@ -218,6 +220,11 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             options.enable_mip_starts = true;
         } else if (std::strcmp(argv[i], "--disable-mip-starts") == 0) {
             options.enable_mip_starts = false;
+        } else if (std::strcmp(argv[i], "--mip-start-initial-config") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --mip-start-initial-config");
+            }
+            options.mip_start_initial_config_policy = parseMipStartInitialConfigPolicy(argv[++i]);
         } else if (std::strcmp(argv[i], "--random-worker-initial-configs") == 0) {
             options.random_worker_initial_configs = true;
         } else if (std::strcmp(argv[i], "--no-random-worker-initial-configs") == 0) {
@@ -302,6 +309,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Expansion early stop: " << (options.expansion_enable_early_stop ? "enabled" : "disabled") << std::endl;
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
+    std::cout << "MIP-start initial config policy: " << mipStartInitialConfigPolicyToString(options.mip_start_initial_config_policy) << std::endl;
     std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
     std::cout << "Solver time mode: " << solverTimeModeToString(options.solver_time_mode) << std::endl;
     std::cout << "Clean working directory: " << (options.clean_working_dir ? "enabled" : "disabled") << std::endl;
@@ -350,6 +358,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.max_iterations,
         options.enable_mip_starts,
         options.random_worker_initial_configs,
+        options.mip_start_initial_config_policy,
         options.expansion_select_rule,
         options.expansion_value_strategy,
         options.expansion_max_deviation,

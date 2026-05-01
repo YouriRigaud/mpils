@@ -192,6 +192,29 @@ class TunerMemory {
             return best_mip_start_id_;
         }
 
+        const Configuration* getBestMipStartProducerConfiguration() const {
+            if (!best_mip_start_id_.has_value()) {
+                return nullptr;
+            }
+
+            auto mip_start_it = mip_starts_by_id_.find(best_mip_start_id_.value());
+            if (mip_start_it == mip_starts_by_id_.end()) {
+                return nullptr;
+            }
+
+            const EvaluationRecord* producer_evaluation = getEvaluationById(mip_start_it->second.evaluation_id);
+            if (producer_evaluation == nullptr) {
+                return nullptr;
+            }
+
+            auto config_it = configurations_by_id_.find(producer_evaluation->configuration_id);
+            if (config_it == configurations_by_id_.end()) {
+                return nullptr;
+            }
+
+            return &config_it->second;
+        }
+
         /** @brief Get the evaluation from its ID */
         const EvaluationRecord* getEvaluationById(EvaluationId eval_id) const {
             auto it = std::find_if(evaluations_.begin(), evaluations_.end(),

@@ -208,6 +208,51 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
     return initial_configurations;
 }
 
+const Configuration& LocalSearchEngine::getInitialConfigurationForWorker(int worker_id) const {
+    if (worker_id <= 0) {
+        return initial_configurations_[0];
+    }
+
+    if (worker_id == 1 && use_mip_start_) {
+        if (mip_start_initial_config_policy_ == MipStartInitialConfigPolicy::BestConfig) {
+            logger_.info(
+                "Worker 1 will start from worker 0 initial configuration for MIP start id ",
+                memory_.getBestMipStartId().value_or(0),
+                " because MIP-start initial configuration policy is best_config."
+            );
+            return initial_configurations_[0];
+        }
+
+        const Configuration* producer_config = memory_.getBestMipStartProducerConfiguration();
+        if (producer_config != nullptr) {
+            logger_.info(
+                "Worker 1 will start from MIP-start producer configuration ",
+                producer_config->getConfigurationId(),
+                " for MIP start id ",
+                memory_.getBestMipStartId().value_or(0),
+                " because MIP-start initial configuration policy is producer_config."
+            );
+            return *producer_config;
+        }
+
+        logger_.info(
+            "Worker 1 requested MIP-start producer configuration, but none was available. ",
+            "Falling back to worker 0 initial configuration."
+        );
+        return initial_configurations_[0];
+    }
+
+    if (!random_worker_initial_configs_) {
+        return initial_configurations_[0];
+    }
+
+    if (worker_id < static_cast<int>(initial_configurations_.size())) {
+        return initial_configurations_[worker_id];
+    }
+
+    return initial_configurations_[0];
+}
+
 int Exploration::selectNumberOfEvaluations() {
     // Implementation to select number of evaluations for tuning phase
     logger_.info("Selecting number of evaluations for tuning phase...");
@@ -283,7 +328,8 @@ ExplorationRunStats Exploration::run() {
                 base_seed_,
                 tuning_objective_,
                 enable_mip_starts_,
-                random_worker_initial_configs_
+                random_worker_initial_configs_,
+                mip_start_initial_config_policy_
             ));
             break;
         case LocalSearchBackend::ParamILS:
@@ -303,7 +349,8 @@ ExplorationRunStats Exploration::run() {
                 nb_workers_,
                 base_seed_,
                 tuning_objective_,
-                enable_mip_starts_
+                enable_mip_starts_,
+                mip_start_initial_config_policy_
             ));
             break;
     }
@@ -328,7 +375,8 @@ ExplorationRunStats Exploration::run() {
             base_seed_,
             tuning_objective_,
             enable_mip_starts_,
-            random_worker_initial_configs_
+            random_worker_initial_configs_,
+            mip_start_initial_config_policy_
         ));
         logger_.info("Default IteratedLocalSearchEngine has been set.");
     }
@@ -386,12 +434,10 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> ParamILSEngine::run()
 void ParamILSEngine::writeParameterOptionsToFile(std::ofstream& myfile, int worker_id) {
     // Implementation to write the parameter space to file
     std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
+    const Configuration& initial_config = getInitialConfigurationForWorker(worker_id);
 
     for (auto& param : parameter_space_.getParameters()) {
-        Value initial_value = initial_configurations_[worker_id].getConfigurationMap().at(param.getName());
-        if (worker_id == 1 && use_mip_start_ && !mip_start_file_.empty()) { // We use the same initial configuration for worker 1 as worker 0 but with a mip start 
-            initial_value = initial_configurations_[0].getConfigurationMap().at(param.getName());
-        }
+        Value initial_value = initial_config.getConfigurationMap().at(param.getName());
         myfile << param.getName() << " {";
         if (param.isTuned()) {
             const auto& values = param.getValues();
@@ -434,7 +480,7 @@ void ParamILSEngine::writeForbiddenOptionsToFile(std::ofstream& myfile, int work
     // Implementation to write forbidden options to file
     std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
     // For each forbidden tuple we have to look if the initial configuration contains it, so we do not forbid it
-    Configuration initial_config = initial_configurations_[worker_id];
+    const Configuration& initial_config = getInitialConfigurationForWorker(worker_id);
 
     for (const auto& tuple : forbidden_tuples) {
         bool is_forbidden = true;
@@ -790,19 +836,6 @@ void IteratedLocalSearchEngine::writeHistoricalCacheSeedFile_(
     logger_.info("Historical cache seed file written: ", seed_file_path, " with ", static_cast<int>(seeds.size()), " entries.");
 }
 
-const Configuration& IteratedLocalSearchEngine::getInitialConfigurationForWorker_(int worker_id) const {
-    if (!random_worker_initial_configs_ || worker_id <= 0) {
-        return initial_configurations_[0];
-    }
-    if (worker_id == 1 && use_mip_start_) {
-        return initial_configurations_[0];
-    }
-    if (worker_id < static_cast<int>(initial_configurations_.size())) {
-        return initial_configurations_[worker_id];
-    }
-    return initial_configurations_[0];
-}
-
 std::string IteratedLocalSearchEngine::getILSSearchSpaceFilePath_(int worker_id) const {
     if (!random_worker_initial_configs_ || worker_id == 0) {
         return ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
@@ -813,7 +846,7 @@ std::string IteratedLocalSearchEngine::getILSSearchSpaceFilePath_(int worker_id)
 void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& myfile, int worker_id) {
     std::vector<std::pair<std::string, Value>>& forbidden_values = parameter_space_.getForbiddenValues();
 
-    const Configuration& initial_config = getInitialConfigurationForWorker_(worker_id);
+    const Configuration& initial_config = getInitialConfigurationForWorker(worker_id);
 
     for (auto& param : parameter_space_.getParameters()) {
         Value initial_value = initial_config.getConfigurationMap().at(param.getName());
@@ -857,7 +890,7 @@ void IteratedLocalSearchEngine::writeILSParameterOptionsToFile(std::ofstream& my
 
 void IteratedLocalSearchEngine::writeILSForbiddenOptionsToFile(std::ofstream& myfile, int worker_id) {
     std::vector<std::vector<std::pair<std::string, Value>>>& forbidden_tuples = parameter_space_.getForbiddenTuples();
-    const Configuration& initial_config = getInitialConfigurationForWorker_(worker_id);
+    const Configuration& initial_config = getInitialConfigurationForWorker(worker_id);
 
     for (const auto& tuple : forbidden_tuples) {
         bool initial_contains_tuple = true;
