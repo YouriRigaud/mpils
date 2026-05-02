@@ -257,6 +257,7 @@ void cleanTunerWorkingDirectory(const std::string& tuner_dir) {
         }
 
         const bool keep_file = filename == "tuner.log" ||
+                               filename == "run.log" ||
                                filename == "best_configuration.prm" ||
                                path.extension() == ".csv";
 
