@@ -14,6 +14,49 @@
 #include <optional>
 #include <string>
 
+enum class SolverTerminationStatus {
+    Normal,
+    WatchdogAbortRequested,
+    CplexException,
+    UnknownException
+};
+
+inline std::string solverTerminationStatusToString(SolverTerminationStatus status) {
+    switch (status) {
+        case SolverTerminationStatus::Normal:
+            return "Normal";
+        case SolverTerminationStatus::WatchdogAbortRequested:
+            return "WatchdogAbortRequested";
+        case SolverTerminationStatus::CplexException:
+            return "CplexException";
+        case SolverTerminationStatus::UnknownException:
+            return "UnknownException";
+    }
+    return "UnknownException";
+}
+
+inline SolverTerminationStatus parseSolverTerminationStatus(const std::string& value) {
+    if (value == "Normal") {
+        return SolverTerminationStatus::Normal;
+    }
+    if (value == "WatchdogAbortRequested") {
+        return SolverTerminationStatus::WatchdogAbortRequested;
+    }
+    if (value == "CplexException") {
+        return SolverTerminationStatus::CplexException;
+    }
+    if (value == "UnknownException") {
+        return SolverTerminationStatus::UnknownException;
+    }
+    return SolverTerminationStatus::UnknownException;
+}
+
+struct SolverWatchdogOptions {
+    bool enabled = true;
+    double wall_time_factor = 1.0;
+    double wall_time_grace_seconds = 1.0;
+};
+
 class Solver {
     protected:
         Logger& logger_;
@@ -27,9 +70,10 @@ class Solver {
         std::string produce_mip_start_file_; // mip start file produced by the solver (optional)
         std::optional<double> mip_start_write_upper_bound_threshold_; // only write produced MIP start if upper bound improves this threshold
         TuningObjective tuning_objective_;
+        SolverWatchdogOptions watchdog_options_;
 
     public:
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode = SolverTimeMode::Seconds, TuningObjective tuning_objective = TuningObjective::Gap)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode = SolverTimeMode::Seconds, TuningObjective tuning_objective = TuningObjective::Gap, SolverWatchdogOptions watchdog_options = SolverWatchdogOptions())
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
@@ -40,10 +84,11 @@ class Solver {
               mip_start_from_file_(""),
               produce_mip_start_file_(""),
               mip_start_write_upper_bound_threshold_(std::nullopt),
-              tuning_objective_(tuning_objective)
+              tuning_objective_(tuning_objective),
+              watchdog_options_(watchdog_options)
         {}
 
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, TuningObjective tuning_objective = TuningObjective::Gap)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, TuningObjective tuning_objective = TuningObjective::Gap, SolverWatchdogOptions watchdog_options = SolverWatchdogOptions())
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
@@ -54,10 +99,11 @@ class Solver {
               mip_start_from_file_(mip_start_from_file),
               produce_mip_start_file_(""),
               mip_start_write_upper_bound_threshold_(std::nullopt),
-              tuning_objective_(tuning_objective)
+              tuning_objective_(tuning_objective),
+              watchdog_options_(watchdog_options)
         {}
 
-        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, std::string& produce_mip_start_file, TuningObjective tuning_objective = TuningObjective::Gap, std::optional<double> mip_start_write_upper_bound_threshold = std::nullopt)
+        Solver(Logger& logger, const std::string& instance_file, const std::string& config_file_path, const std::string& log_file, int nb_threads, double cutoff_solver_time, SolverTimeMode solver_time_mode, std::string& mip_start_from_file, std::string& produce_mip_start_file, TuningObjective tuning_objective = TuningObjective::Gap, std::optional<double> mip_start_write_upper_bound_threshold = std::nullopt, SolverWatchdogOptions watchdog_options = SolverWatchdogOptions())
             : logger_(logger),
               instance_file_(instance_file),
               config_file_path_(config_file_path),
@@ -68,7 +114,8 @@ class Solver {
               mip_start_from_file_(mip_start_from_file),
               produce_mip_start_file_(produce_mip_start_file),
               mip_start_write_upper_bound_threshold_(mip_start_write_upper_bound_threshold),
-              tuning_objective_(tuning_objective)
+              tuning_objective_(tuning_objective),
+              watchdog_options_(watchdog_options)
         {}
 
         virtual ~Solver() = default; // Virtual destructor
@@ -80,6 +127,7 @@ class Solver {
         virtual std::optional<double> getUpperBound() = 0; // Pure virtual function to get the best solution value
         virtual std::optional<double> getLowerBound() = 0; // Pure virtual function to get the best bound value
         virtual double getSolveTimeSeconds() const = 0; // Pure virtual function to get the solver runtime in seconds
+        virtual SolverTerminationStatus getTerminationStatus() const = 0;
 };
 
 
@@ -89,6 +137,7 @@ class CPLEXSolver : public Solver {
         double time_sec_;
         std::optional<double> upper_bound_;
         std::optional<double> lower_bound_;
+        SolverTerminationStatus termination_status_;
 
     public:
         CPLEXSolver(
@@ -99,12 +148,14 @@ class CPLEXSolver : public Solver {
             int nb_threads,
             double cutoff_solver_time,
             SolverTimeMode solver_time_mode = SolverTimeMode::Seconds,
-            TuningObjective tuning_objective = TuningObjective::Gap
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, tuning_objective),
+            TuningObjective tuning_objective = TuningObjective::Gap,
+            SolverWatchdogOptions watchdog_options = SolverWatchdogOptions()
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, tuning_objective, watchdog_options),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),
-           lower_bound_(std::nullopt)
+           lower_bound_(std::nullopt),
+           termination_status_(SolverTerminationStatus::Normal)
         {}
 
         CPLEXSolver(
@@ -116,12 +167,14 @@ class CPLEXSolver : public Solver {
             double cutoff_solver_time,
             SolverTimeMode solver_time_mode,
             std::string& mip_start_from_file,
-            TuningObjective tuning_objective = TuningObjective::Gap
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, tuning_objective),
+            TuningObjective tuning_objective = TuningObjective::Gap,
+            SolverWatchdogOptions watchdog_options = SolverWatchdogOptions()
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, tuning_objective, watchdog_options),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),
-           lower_bound_(std::nullopt)
+           lower_bound_(std::nullopt),
+           termination_status_(SolverTerminationStatus::Normal)
         {}
 
         CPLEXSolver(
@@ -135,12 +188,14 @@ class CPLEXSolver : public Solver {
             std::string& mip_start_from_file,
             std::string& produce_mip_start_file,
             TuningObjective tuning_objective = TuningObjective::Gap,
-            std::optional<double> mip_start_write_upper_bound_threshold = std::nullopt
-        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, produce_mip_start_file, tuning_objective, mip_start_write_upper_bound_threshold),
+            std::optional<double> mip_start_write_upper_bound_threshold = std::nullopt,
+            SolverWatchdogOptions watchdog_options = SolverWatchdogOptions()
+        ): Solver(logger, instance_file, config_file_path, log_file, nb_threads, cutoff_solver_time, solver_time_mode, mip_start_from_file, produce_mip_start_file, tuning_objective, mip_start_write_upper_bound_threshold, watchdog_options),
            gap_(std::numeric_limits<double>::max()),
            time_sec_(std::numeric_limits<double>::max()),
            upper_bound_(std::nullopt),
-           lower_bound_(std::nullopt)
+           lower_bound_(std::nullopt),
+           termination_status_(SolverTerminationStatus::Normal)
         {}
 
         void solve() override;
@@ -149,6 +204,7 @@ class CPLEXSolver : public Solver {
         std::optional<double> getUpperBound() override;
         std::optional<double> getLowerBound() override;
         double getSolveTimeSeconds() const override;
+        SolverTerminationStatus getTerminationStatus() const override;
 };
 
 

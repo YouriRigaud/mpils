@@ -89,6 +89,7 @@ struct ExpansionEvaluationResult {
     std::optional<double> upper_bound;
     std::optional<double> lower_bound;
     std::optional<double> solver_runtime_seconds;
+    SolverTerminationStatus solver_termination_status = SolverTerminationStatus::Normal;
 };
 
 struct ClassifyParameterOutput {
@@ -126,6 +127,7 @@ class Expansion {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         SolverTimeMode solver_time_mode_;
+        SolverWatchdogOptions solver_watchdog_options_;
         TuningObjective tuning_objective_;
         ExpansionSelectRule select_rule_;
         ExpansionValueStrategy value_strategy_;
@@ -174,6 +176,7 @@ class Expansion {
             std::optional<double> upper_bound,
             std::optional<double> lower_bound,
             std::optional<double> solver_runtime_seconds,
+            SolverTerminationStatus solver_termination_status,
             int evaluated_time,
             int worker_id,
             std::vector<EvaluateParameterOutput>& evaluation_outputs
@@ -197,6 +200,7 @@ class Expansion {
             int nb_threads_solver,
             double cutoff_solver_time,
             SolverTimeMode solver_time_mode,
+            SolverWatchdogOptions solver_watchdog_options,
             TuningObjective tuning_objective,
             ExpansionSelectRule select_rule,
             ExpansionValueStrategy value_strategy,
@@ -213,6 +217,7 @@ class Expansion {
            nb_threads_solver_(nb_threads_solver),
            cutoff_solver_time_(cutoff_solver_time),
            solver_time_mode_(solver_time_mode),
+           solver_watchdog_options_(solver_watchdog_options),
            tuning_objective_(tuning_objective),
            select_rule_(select_rule),
            value_strategy_(value_strategy),
@@ -233,6 +238,7 @@ class ExpansionWorker {
         int nb_threads_solver_;
         double cutoff_solver_time_;
         SolverTimeMode solver_time_mode_;
+        SolverWatchdogOptions solver_watchdog_options_;
         TuningObjective tuning_objective_;
         double best_objective_value_;
         bool enable_early_stop_;
@@ -247,8 +253,8 @@ class ExpansionWorker {
         bool isExpansionImprovement(double objective_value) const;
 
     public:
-        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, TuningObjective tuning_objective, double best_objective_value, bool enable_early_stop, Logger& logger)
-            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), tuning_objective_(tuning_objective), best_objective_value_(best_objective_value), enable_early_stop_(enable_early_stop), logger_(logger) {}
+        ExpansionWorker(int worker_id, int iteration, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, SolverWatchdogOptions solver_watchdog_options, TuningObjective tuning_objective, double best_objective_value, bool enable_early_stop, Logger& logger)
+            : worker_id_(worker_id), iteration_(iteration), instance_file_(instance_file), solver_log_file_(solver_log_file), nb_threads_solver_(nb_threads_solver), cutoff_solver_time_(cutoff_solver_time), solver_time_mode_(solver_time_mode), solver_watchdog_options_(solver_watchdog_options), tuning_objective_(tuning_objective), best_objective_value_(best_objective_value), enable_early_stop_(enable_early_stop), logger_(logger) {}
 
         void run();
 };

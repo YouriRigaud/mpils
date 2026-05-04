@@ -323,6 +323,7 @@ ExplorationRunStats Exploration::run() {
                 nb_threads_solver_,
                 cutoff_solver_time_,
                 solver_time_mode_,
+                solver_watchdog_options_,
                 nb_workers_,
                 use_shared_cache_,
                 base_seed_,
@@ -346,6 +347,7 @@ ExplorationRunStats Exploration::run() {
                 nb_threads_solver_,
                 cutoff_solver_time_,
                 solver_time_mode_,
+                solver_watchdog_options_,
                 nb_workers_,
                 base_seed_,
                 tuning_objective_,
@@ -370,6 +372,7 @@ ExplorationRunStats Exploration::run() {
             nb_threads_solver_,
             cutoff_solver_time_,
             solver_time_mode_,
+            solver_watchdog_options_,
             nb_workers_,
             use_shared_cache_,
             base_seed_,
@@ -1007,6 +1010,7 @@ std::vector<EvaluationRecord> IteratedLocalSearchEngine::syncILSResultsToGlobalM
         options.upper_bound = local_record.upper_bound;
         options.lower_bound = local_record.lower_bound;
         options.solver_runtime_seconds = local_record.solver_runtime_seconds;
+        options.solver_termination_status = local_record.solver_termination_status;
         options.time_evaluated = local_record.time_evaluated;
         options.worker_id = worker_id;
         options.iteration = iteration_;
@@ -1101,6 +1105,7 @@ std::vector<std::pair<int, std::vector<EvaluationRecord>>> IteratedLocalSearchEn
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
     ils_options.solver_time_mode = solver_time_mode_;
+    ils_options.solver_watchdog_options = solver_watchdog_options_;
     ils_options.tuning_objective = tuning_objective_;
 
     ils_ = std::make_unique<IteratedLocalSearch>(logger_, ils_options);
@@ -1151,6 +1156,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
     std::optional<double> upper_bound = std::nullopt;
     std::optional<double> lower_bound = std::nullopt;
     std::optional<double> solver_runtime_seconds = std::nullopt;
+    SolverTerminationStatus solver_termination_status = SolverTerminationStatus::Normal;
     int time_evaluated = -1;
     bool mip_start_used = false;
     std::optional<MipStartId> used_mip_start_id = std::nullopt;
@@ -1170,6 +1176,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             upper_bound = std::nullopt;
             lower_bound = std::nullopt;
             solver_runtime_seconds = std::nullopt;
+            solver_termination_status = SolverTerminationStatus::Normal;
             time_evaluated = -1;
             mip_start_used = false;
             used_mip_start_id = std::nullopt;
@@ -1190,6 +1197,7 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             record.upper_bound = upper_bound;
             record.lower_bound = lower_bound;
             record.solver_runtime_seconds = solver_runtime_seconds;
+            record.solver_termination_status = solver_termination_status;
             record.time_evaluated = time_evaluated;
             record.configuration_id = 0;
             record.mip_start_used = mip_start_used;
@@ -1225,6 +1233,8 @@ std::vector<std::pair<Configuration, EvaluationRecord>> IteratedLocalSearchEngin
             lower_bound = std::stod(value);
         } else if (key == "SolverRuntimeSeconds") {
             solver_runtime_seconds = std::stod(value);
+        } else if (key == "SolverTerminationStatus") {
+            solver_termination_status = parseSolverTerminationStatus(value);
         } else if (key == "TimeEvaluated") {
             time_evaluated = std::stoi(value);
         } else if (key == "MipStartUsed") {
@@ -1336,6 +1346,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     ils_options.nb_threads_solver = nb_threads_solver_;
     ils_options.cutoff_solver_time = cutoff_solver_time_;
     ils_options.solver_time_mode = solver_time_mode_;
+    ils_options.solver_watchdog_options = solver_watchdog_options_;
     ils_options.tuning_objective = tuning_objective_;
 
     IteratedLocalSearch ils(logger_, ils_options);
@@ -1372,6 +1383,7 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
         if (record.solver_runtime_seconds.has_value()) {
             myfile << "SolverRuntimeSeconds=" << record.solver_runtime_seconds.value() << std::endl;
         }
+        myfile << "SolverTerminationStatus=" << solverTerminationStatusToString(record.solver_termination_status) << std::endl;
         myfile << "TimeEvaluated=" << record.time_evaluated << std::endl;
         myfile << "MipStartUsed=" << record.mip_start_used << std::endl;
         if (record.mip_start_used) {

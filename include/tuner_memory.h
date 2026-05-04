@@ -20,6 +20,7 @@
 #include "parameter_space.h"
 #include "logger.h"
 #include "globaltimer.h"
+#include "solver.h"
 
 #include <map>
 #include <vector>
@@ -58,6 +59,7 @@ struct EvaluationRecord {
     std::optional<double> lower_bound; ///< Solver lower bound recorded for this evaluation, if available
     int time_evaluated;
     std::optional<double> solver_runtime_seconds; ///< Runtime of the solver call, if this evaluation ran a solver.
+    SolverTerminationStatus solver_termination_status = SolverTerminationStatus::Normal;
     ConfigurationId configuration_id;
 
     bool mip_start_used;
@@ -90,6 +92,7 @@ struct RecordEvaluationOptions {
     std::optional<double> lower_bound = std::nullopt; /// Solver lower bound obtained from the evaluation, if available.
     int time_evaluated = -1;    /// Time when the configuration was evaluated (in seconds since tuning started).
     std::optional<double> solver_runtime_seconds = std::nullopt; /// Runtime of the solver call, if available.
+    SolverTerminationStatus solver_termination_status = SolverTerminationStatus::Normal;
     int worker_id = -1;         /// ID of the worker that performed the evaluation (for logging purposes).
     int iteration = -1;         /// Iteration number during which the evaluation was performed (for logging purposes).
     int phase = -1;             /// Phase of the tuning process during which the evaluation was performed (0 for exploration, 1 for expansion).
@@ -310,12 +313,13 @@ class TunerMemory {
                 throw std::runtime_error("Could not open file to write evaluation log: " + filename);
             }
             // Write header
-            file << "EvalID,TimeEvaluated,SolverRuntimeSeconds,ObjectiveValue,Gap,UpperBound,LowerBound,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
+            file << "EvalID,TimeEvaluated,SolverRuntimeSeconds,SolverTerminationStatus,ObjectiveValue,Gap,UpperBound,LowerBound,ConfigID,MipStartID,WorkerID,Iteration,Phase\n";
             // Write records
             for (const auto& record : evaluations_) {
                 file << record.evaluation_id << ","
                      << record.time_evaluated << ","
                      << (record.solver_runtime_seconds.has_value() ? std::to_string(record.solver_runtime_seconds.value()) : "") << ","
+                     << solverTerminationStatusToString(record.solver_termination_status) << ","
                      << record.objective_value << ","
                      << (record.gap.has_value() ? std::to_string(record.gap.value()) : "") << ","
                      << (record.upper_bound.has_value() ? std::to_string(record.upper_bound.value()) : "") << ","

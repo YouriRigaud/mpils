@@ -32,6 +32,7 @@ EvaluationRecord TunerMemory::createEvaluationRecord_(const RecordEvaluationOpti
     record.upper_bound = options.upper_bound;
     record.lower_bound = options.lower_bound;
     record.solver_runtime_seconds = options.solver_runtime_seconds;
+    record.solver_termination_status = options.solver_termination_status;
 
     // Compute the time evaluated (in seconds since tuning started)
     if (options.time_evaluated >= 0) {

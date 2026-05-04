@@ -36,6 +36,7 @@ struct TunerOptions {
     int nb_threads_solver = 2;
     double cutoff_solver_time = 15.0;
     SolverTimeMode solver_time_mode = SolverTimeMode::Seconds;
+    SolverWatchdogOptions solver_watchdog_options;
     int nb_workers = 1;
     bool use_shared_cache = false;
     bool exploration_only = false;
@@ -70,6 +71,10 @@ void printHelp(const char* program_name) {
     std::cout << "  --solver-threads N              Set the number of solver threads" << std::endl;
     std::cout << "  --solver-time SECONDS           Set the cutoff time for each solver run" << std::endl;
     std::cout << "  --solver-time-mode MODE         Set solver time budget mode (seconds or ticks)" << std::endl;
+    std::cout << "  --solver-wall-watchdog          Enable cooperative wall-clock watchdog for seconds mode" << std::endl;
+    std::cout << "  --no-solver-wall-watchdog       Disable cooperative wall-clock watchdog" << std::endl;
+    std::cout << "  --solver-wall-factor VALUE      Set watchdog wall limit factor (default 1.25)" << std::endl;
+    std::cout << "  --solver-wall-grace SECONDS     Set watchdog wall limit grace seconds (default 5.0)" << std::endl;
     std::cout << "  --local-search-engine NAME      Set the exploration backend (iterated_local_search or paramils)" << std::endl;
     std::cout << "  --seed N                        Set the base random seed" << std::endl;
     std::cout << "  --tuning-objective NAME         Set the tuning objective (gap or upper_bound)" << std::endl;
@@ -163,6 +168,20 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
                 throw std::runtime_error("Missing value for --solver-time-mode");
             }
             options.solver_time_mode = parseSolverTimeMode(argv[++i]);
+        } else if (std::strcmp(argv[i], "--solver-wall-watchdog") == 0) {
+            options.solver_watchdog_options.enabled = true;
+        } else if (std::strcmp(argv[i], "--no-solver-wall-watchdog") == 0) {
+            options.solver_watchdog_options.enabled = false;
+        } else if (std::strcmp(argv[i], "--solver-wall-factor") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-wall-factor");
+            }
+            options.solver_watchdog_options.wall_time_factor = std::stod(argv[++i]);
+        } else if (std::strcmp(argv[i], "--solver-wall-grace") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --solver-wall-grace");
+            }
+            options.solver_watchdog_options.wall_time_grace_seconds = std::stod(argv[++i]);
         } else if (std::strcmp(argv[i], "--tuning-objective") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --tuning-objective");
@@ -282,6 +301,12 @@ void validateTunerOptions(const TunerOptions& options) {
             "Use '--solver-time-mode seconds' or switch to the iterated_local_search backend."
         );
     }
+    if (options.solver_watchdog_options.wall_time_factor < 0.0) {
+        throw std::runtime_error("--solver-wall-factor must be non-negative");
+    }
+    if (options.solver_watchdog_options.wall_time_grace_seconds < 0.0) {
+        throw std::runtime_error("--solver-wall-grace must be non-negative");
+    }
 }
 
 void writeParamILSInstanceFile(const std::string& filepath, const std::string& instance_file) {
@@ -313,6 +338,11 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "MIP-start initial config policy: " << mipStartInitialConfigPolicyToString(options.mip_start_initial_config_policy) << std::endl;
     std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
     std::cout << "Solver time mode: " << solverTimeModeToString(options.solver_time_mode) << std::endl;
+    std::cout << "Solver wall watchdog: "
+              << (options.solver_watchdog_options.enabled && options.solver_time_mode == SolverTimeMode::Seconds ? "enabled" : "disabled")
+              << " | factor: " << options.solver_watchdog_options.wall_time_factor
+              << " | grace: " << options.solver_watchdog_options.wall_time_grace_seconds << "s"
+              << std::endl;
     std::cout << "Clean working directory: " << (options.clean_working_dir ? "enabled" : "disabled") << std::endl;
     std::cout << "Number of evaluations: ";
     if (options.number_of_evaluations.has_value()) {
@@ -348,6 +378,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.nb_threads_solver,
         options.cutoff_solver_time,
         options.solver_time_mode,
+        options.solver_watchdog_options,
         options.nb_workers,
         options.use_shared_cache,
         options.exploration_only,
@@ -395,7 +426,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
 void workerProcess(int world_rank, TunerOptions options) {
     // init a clock to measure total tuning time
     GlobalTimer::start();
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.solver_time_mode, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.solver_time_mode, options.solver_watchdog_options, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
     worker.run();
 }
 #endif

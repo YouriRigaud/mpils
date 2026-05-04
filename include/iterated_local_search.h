@@ -246,6 +246,7 @@ class IteratedLocalSearch {
             int nb_threads_solver = 2;
             double cutoff_solver_time = 15.0;
             SolverTimeMode solver_time_mode = SolverTimeMode::Seconds;
+            SolverWatchdogOptions solver_watchdog_options;
             TuningObjective tuning_objective = TuningObjective::Gap;
         };
 
@@ -306,6 +307,7 @@ class IteratedLocalSearch {
             std::optional<double> upper_bound = std::nullopt,
             std::optional<double> lower_bound = std::nullopt,
             std::optional<double> solver_runtime_seconds = std::nullopt,
+            SolverTerminationStatus solver_termination_status = SolverTerminationStatus::Normal,
             bool produced_mip_start = false,
             const std::string& produced_mip_start_file = ""
         );

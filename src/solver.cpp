@@ -8,6 +8,11 @@
 
 #include <ilcplex/ilocplex.h>
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 void CPLEXSolver::solve() {
     logger_.info("Starting CPLEX solver on instance: " + instance_file_ + " with config: " + config_file_path_);
@@ -15,6 +20,7 @@ void CPLEXSolver::solve() {
     gap_ = std::numeric_limits<double>::max();
     upper_bound_ = std::nullopt;
     lower_bound_ = std::nullopt;
+    termination_status_ = SolverTerminationStatus::Normal;
     ensureParentDirectoryForFile(log_file_);
     std::ofstream logStream(log_file_, std::ios::app);
     try {
@@ -50,11 +56,94 @@ void CPLEXSolver::solve() {
         if (!mip_start_from_file_.empty()) {
             cplex.readMIPStarts(mip_start_from_file_.c_str());
         }
+
+        const bool use_wall_watchdog =
+            solver_time_mode_ == SolverTimeMode::Seconds &&
+            watchdog_options_.enabled &&
+            cutoff_solver_time_ > 0.0;
+        std::optional<IloCplex::Aborter> aborter;
+        std::atomic<bool> watchdog_abort_requested(false);
+        std::atomic<bool> watchdog_abort_failed(false);
+        std::mutex watchdog_mutex;
+        std::condition_variable watchdog_cv;
+        bool solve_finished = false;
+        std::thread watchdog_thread;
+
+        if (use_wall_watchdog) {
+            aborter.emplace(env);
+            cplex.use(*aborter);
+
+            const double wall_limit_seconds =
+                cutoff_solver_time_ * watchdog_options_.wall_time_factor +
+                watchdog_options_.wall_time_grace_seconds;
+            const auto deadline =
+                std::chrono::steady_clock::now() +
+                std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<double>(wall_limit_seconds)
+                );
+
+            logStream << "Wall watchdog: enabled"
+                      << " factor=" << watchdog_options_.wall_time_factor
+                      << " grace=" << watchdog_options_.wall_time_grace_seconds
+                      << " limit=" << wall_limit_seconds << " seconds\n";
+            watchdog_thread = std::thread([&]() {
+                std::unique_lock<std::mutex> lock(watchdog_mutex);
+                const bool finished_before_deadline = watchdog_cv.wait_until(
+                    lock,
+                    deadline,
+                    [&]() { return solve_finished; }
+                );
+                if (!finished_before_deadline) {
+                    watchdog_abort_requested.store(true);
+                    try {
+                        aborter->abort();
+                    } catch (...) {
+                        watchdog_abort_failed.store(true);
+                    }
+                }
+            });
+        } else {
+            logStream << "Wall watchdog: disabled\n";
+        }
+
+        auto finish_watchdog = [&]() {
+            if (!use_wall_watchdog) {
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(watchdog_mutex);
+                solve_finished = true;
+            }
+            watchdog_cv.notify_one();
+            if (watchdog_thread.joinable()) {
+                watchdog_thread.join();
+            }
+        };
+
         // Solve the model
         double startTime = cplex.getCplexTime();
-        cplex.solve();
+        try {
+            cplex.solve();
+        } catch (...) {
+            finish_watchdog();
+            if (watchdog_abort_requested.load()) {
+                termination_status_ = SolverTerminationStatus::WatchdogAbortRequested;
+            }
+            throw;
+        }
+        finish_watchdog();
         double endTime = cplex.getCplexTime();
         time_sec_ = endTime - startTime;
+
+        if (watchdog_abort_requested.load()) {
+            termination_status_ = SolverTerminationStatus::WatchdogAbortRequested;
+            logger_.warn("CPLEX wall watchdog requested abort for config ", config_file_path_, ".");
+            logStream << "Wall watchdog abort requested.\n";
+            if (watchdog_abort_failed.load()) {
+                logger_.warn("CPLEX wall watchdog abort call threw for config ", config_file_path_, ".");
+                logStream << "Wall watchdog abort call threw.\n";
+            }
+        }
 
         if (cplex.isPrimalFeasible()) {
             upper_bound_ = cplex.getObjValue();
@@ -92,6 +181,7 @@ void CPLEXSolver::solve() {
         if (lower_bound_.has_value()) {
             logStream << "Lower bound: " << lower_bound_.value() << "\n";
         }
+        logStream << "Termination status: " << solverTerminationStatusToString(termination_status_) << "\n";
         logStream << "End of CPLEX run. Time: " << time_sec_ << " seconds\n";
         logStream.flush();
 
@@ -107,12 +197,20 @@ void CPLEXSolver::solve() {
             logger_.info("Writing MIP start file: " + produce_mip_start_file_);
         }
     } catch (IloException& e) {
+        if (termination_status_ != SolverTerminationStatus::WatchdogAbortRequested) {
+            termination_status_ = SolverTerminationStatus::CplexException;
+        }
         logStream << "CPLEX Exception: " << e << "\n";
+        logStream << "Termination status: " << solverTerminationStatusToString(termination_status_) << "\n";
         logStream << "End of CPLEX run due to exception.\n";
         logStream.flush();
         env.error() << "CPLEX Exception: " << e << std::endl;
     } catch (...) {
+        if (termination_status_ != SolverTerminationStatus::WatchdogAbortRequested) {
+            termination_status_ = SolverTerminationStatus::UnknownException;
+        }
         logStream << "Unknown exception caught.\n";
+        logStream << "Termination status: " << solverTerminationStatusToString(termination_status_) << "\n";
         logStream << "End of CPLEX run due to exception.\n";
         logStream.flush();
         env.error() << "Unknown exception caught." << std::endl;
@@ -150,4 +248,8 @@ std::optional<double> CPLEXSolver::getLowerBound() {
 
 double CPLEXSolver::getSolveTimeSeconds() const {
     return time_sec_;
+}
+
+SolverTerminationStatus CPLEXSolver::getTerminationStatus() const {
+    return termination_status_;
 }

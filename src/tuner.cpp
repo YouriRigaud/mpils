@@ -398,6 +398,7 @@ void Worker::runExplorationPhase() {
                 nb_threads_solver_,
                 cutoff_solver_time_,
                 solver_time_mode_,
+                solver_watchdog_options_,
                 instance_file_,
                 solver_log_file_,
                 tuning_objective_,
@@ -417,6 +418,7 @@ void Worker::runExplorationPhase() {
                 base_seed_,
                 worker_logger_,
                 solver_time_mode_,
+                solver_watchdog_options_,
                 use_mip_start,
                 use_shared_cache_,
                 random_worker_initial_configs_
@@ -442,6 +444,7 @@ void Worker::runExpansionPhase() {
         nb_threads_solver_,
         cutoff_solver_time_,
         solver_time_mode_,
+        solver_watchdog_options_,
         tuning_objective_,
         expansion_best_objective_value_,
         expansion_enable_early_stop_,
