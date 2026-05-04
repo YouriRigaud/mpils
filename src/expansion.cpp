@@ -242,6 +242,7 @@ void Expansion::addToEvaluateParameters(
 const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const std::vector<CreateConfigurationsOutput>& configuration_files_outputs) {
     logger_.info("Evaluating expansion parameters...");
     std::vector<EvaluateParameterOutput> evaluation_outputs;
+    std::vector<ExpansionEvaluationResult> evaluation_results;
     std::vector<std::pair<int, std::string>> configs_to_evaluate; // Pair of (config_id, config_file_path)
     configs_to_evaluate.reserve(configuration_files_outputs.size());
     for (size_t i = 0; i < configuration_files_outputs.size(); ++i) {
@@ -249,22 +250,26 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
     }
     const bool use_expansion_early_stop = shouldUseExpansionEarlyStop();
 #ifdef USE_MPI
-    // Split configs_to_evaluate between master and workers
     int nb_workers = 1; // Default to 1 for non-MPI
     MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
-    int configs_per_worker = configs_to_evaluate.size() / nb_workers;
-    int remainder = configs_to_evaluate.size() % nb_workers;
-    // Master evaluates its share
-    std::vector<std::pair<int, std::string>> master_configs_to_evaluate(configs_to_evaluate.begin(), configs_to_evaluate.begin() + configs_per_worker + (remainder > 0 ? 1 : 0));
-    // Send configs to workers
+    std::vector<std::pair<int, std::string>> master_configs_to_evaluate;
+    for (std::size_t i = 0; i < configs_to_evaluate.size(); i += static_cast<std::size_t>(nb_workers)) {
+        master_configs_to_evaluate.push_back(configs_to_evaluate[i]);
+    }
+
     for (int worker_id = 1; worker_id < nb_workers; ++worker_id) {
-        int start_index = worker_id * configs_per_worker + std::min(worker_id, remainder);
-        int end_index = start_index + configs_per_worker + (worker_id < remainder ? 1 : 0); // Send a remainder config if still at least one left
-        int num_configs = end_index - start_index;
+        std::vector<std::pair<int, std::string>> worker_configs_to_evaluate;
+        for (std::size_t i = static_cast<std::size_t>(worker_id);
+             i < configs_to_evaluate.size();
+             i += static_cast<std::size_t>(nb_workers)) {
+            worker_configs_to_evaluate.push_back(configs_to_evaluate[i]);
+        }
+
+        int num_configs = static_cast<int>(worker_configs_to_evaluate.size());
         MPI_Send(&num_configs, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD);
-        for (int i = start_index; i < end_index; ++i) {
-            int config_id = configs_to_evaluate[i].first;
-            const std::string& config_file_path = configs_to_evaluate[i].second;
+        for (const auto& config_pair : worker_configs_to_evaluate) {
+            int config_id = config_pair.first;
+            const std::string& config_file_path = config_pair.second;
             MPI_Send(&config_id, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD);
             int path_length = config_file_path.size();
             MPI_Send(&path_length, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD);
@@ -276,7 +281,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 #endif
     // Master evaluates its configurations
     std::string solver_log_file_master = solver_log_file_ + "_iteration_expansion_" + std::to_string(iteration_) + "_worker_0";
-    auto evaluate_single_config = [&](int config_id, const std::string& config_file_path) -> double {
+    auto evaluate_single_config = [&](int config_id, const std::string& config_file_path) -> ExpansionEvaluationResult {
         CPLEXSolver solver(
             logger_,
             instance_file_,
@@ -298,10 +303,17 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
         SolverTerminationStatus solver_termination_status = solver.getTerminationStatus();
         int evaluated_time = GlobalTimer::elapsedSeconds();
 
-        const auto& create_output = configuration_files_outputs[config_id];
-        addToEvaluateParameters(create_output.parameter, create_output.configuration, objective_value, gap, upper_bound, lower_bound, solver_runtime_seconds, solver_termination_status, evaluated_time, 0, evaluation_outputs);
-
-        return objective_value;
+        return ExpansionEvaluationResult{
+            config_id,
+            0,
+            objective_value,
+            evaluated_time,
+            gap,
+            upper_bound,
+            lower_bound,
+            solver_runtime_seconds,
+            solver_termination_status
+        };
     };
 
 #ifdef USE_MPI
@@ -315,7 +327,9 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 
             if (round < local_count) {
                 const auto& config_pair = master_configs_to_evaluate[round];
-                const double objective_value = evaluate_single_config(config_pair.first, config_pair.second);
+                ExpansionEvaluationResult result = evaluate_single_config(config_pair.first, config_pair.second);
+                const double objective_value = result.objective_value;
+                evaluation_results.push_back(result);
 
                 if (isExpansionImprovement(objective_value)) {
                     local_found_improvement = 1;
@@ -331,7 +345,7 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             MPI_Allreduce(&local_found_improvement, &global_early_stop, 1, MPI_INT, MPI_LOR, MPI_COMM_WORLD);
             if (global_early_stop != 0) {
                 logger_.info(
-                    "Expansion early stop activated in MPI after ", evaluation_outputs.size(),
+                    "Expansion early stop activated in MPI after ", evaluation_results.size(),
                     " master-side evaluation(s). Remaining not-yet-evaluated parameters stay residual."
                 );
                 break;
@@ -341,7 +355,9 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
 #endif
     {
         for (const auto& config_pair : master_configs_to_evaluate) {
-            const double objective_value = evaluate_single_config(config_pair.first, config_pair.second);
+            ExpansionEvaluationResult result = evaluate_single_config(config_pair.first, config_pair.second);
+            const double objective_value = result.objective_value;
+            evaluation_results.push_back(result);
 
             if (use_expansion_early_stop && isExpansionImprovement(objective_value)) {
                 const auto& create_output = configuration_files_outputs[config_pair.first];
@@ -394,23 +410,78 @@ const std::vector<EvaluateParameterOutput> Expansion::evaluateParameters(const s
             MPI_Recv(&solver_termination_status_value, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
             MPI_Recv(&evaluated_time, 1, MPI_INT, worker_id, 0, MPI_COMM_WORLD, &status);
 
-            const auto& create_output = configuration_files_outputs[config_id];
-            addToEvaluateParameters(
-                create_output.parameter,
-                create_output.configuration,
+            evaluation_results.push_back(ExpansionEvaluationResult{
+                config_id,
+                worker_id,
                 objective_value,
+                evaluated_time,
                 has_gap != 0 ? std::optional<double>(gap_value) : std::nullopt,
                 has_upper_bound != 0 ? std::optional<double>(upper_bound_value) : std::nullopt,
                 has_lower_bound != 0 ? std::optional<double>(lower_bound_value) : std::nullopt,
                 has_solver_runtime != 0 ? std::optional<double>(solver_runtime_value) : std::nullopt,
-                static_cast<SolverTerminationStatus>(solver_termination_status_value),
-                evaluated_time,
-                worker_id,
-                evaluation_outputs
-            );
+                static_cast<SolverTerminationStatus>(solver_termination_status_value)
+            });
         }
     }
 #endif
+
+    std::sort(
+        evaluation_results.begin(),
+        evaluation_results.end(),
+        [](const ExpansionEvaluationResult& lhs, const ExpansionEvaluationResult& rhs) {
+            return lhs.config_id < rhs.config_id;
+        }
+    );
+
+    if (use_expansion_early_stop) {
+        auto first_improvement_it = std::find_if(
+            evaluation_results.begin(),
+            evaluation_results.end(),
+            [this](const ExpansionEvaluationResult& result) {
+                return isExpansionImprovement(result.objective_value);
+            }
+        );
+
+        if (first_improvement_it != evaluation_results.end()) {
+            const int first_improving_config_id = first_improvement_it->config_id;
+            auto first_ignored_it = std::remove_if(
+                evaluation_results.begin(),
+                evaluation_results.end(),
+                [first_improving_config_id](const ExpansionEvaluationResult& result) {
+                    return result.config_id > first_improving_config_id;
+                }
+            );
+            const int ignored_count = static_cast<int>(std::distance(first_ignored_it, evaluation_results.end()));
+            evaluation_results.erase(first_ignored_it, evaluation_results.end());
+
+            if (ignored_count > 0) {
+                logger_.info(
+                    "Strict sequential expansion early stop ignored ",
+                    ignored_count,
+                    " already-computed result(s) after first improving config id ",
+                    first_improving_config_id,
+                    "."
+                );
+            }
+        }
+    }
+
+    for (const auto& result : evaluation_results) {
+        const auto& create_output = configuration_files_outputs[result.config_id];
+        addToEvaluateParameters(
+            create_output.parameter,
+            create_output.configuration,
+            result.objective_value,
+            result.gap,
+            result.upper_bound,
+            result.lower_bound,
+            result.solver_runtime_seconds,
+            result.solver_termination_status,
+            result.evaluated_time,
+            result.worker_id,
+            evaluation_outputs
+        );
+    }
 
     return evaluation_outputs;
 }
@@ -647,7 +718,7 @@ void ExpansionWorker::evaluateConfigurations() {
         SolverTerminationStatus solver_termination_status = solver.getTerminationStatus();
         int elapsed_time = GlobalTimer::elapsedSeconds();
 
-        evaluation_results_.push_back({config_id, objective_value, elapsed_time, gap, upper_bound, lower_bound, solver_runtime_seconds, solver_termination_status});
+        evaluation_results_.push_back({config_id, worker_id_, objective_value, elapsed_time, gap, upper_bound, lower_bound, solver_runtime_seconds, solver_termination_status});
         return objective_value;
     };
 

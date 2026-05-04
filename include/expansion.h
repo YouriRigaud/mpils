@@ -83,6 +83,7 @@ struct EvaluateParameterOutput {
 
 struct ExpansionEvaluationResult {
     int config_id;
+    int worker_id;
     double objective_value;
     int evaluated_time;
     std::optional<double> gap;
