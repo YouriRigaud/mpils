@@ -74,9 +74,11 @@ class LocalSearchEngine {
         MipStartInitialConfigPolicy mip_start_initial_config_policy_;
         MipStartId used_mip_start_id_;
         std::string mip_start_file_;
+        bool force_worker_initial_configs_;
 
         const Configuration& getInitialConfigurationForWorker(int worker_id) const;
         const std::vector<EvaluationRecord> parseCplexResultsFromLogFile(int run_obj, int worker_id);
+        bool usesWorkerSpecificInitialConfigurations() const;
 
         void setMipStartFile();
 
@@ -105,7 +107,8 @@ class LocalSearchEngine {
             TuningObjective tuning_objective,
             bool mip_start = false,
             bool random_worker_initial_configs = true,
-            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
+            bool force_worker_initial_configs = false
         ): memory_(memory),
            logger_(logger),
            initial_configurations_(initial_configurations),
@@ -125,7 +128,8 @@ class LocalSearchEngine {
            base_seed_(base_seed),
            random_worker_initial_configs_(random_worker_initial_configs),
            mip_start_initial_config_policy_(mip_start_initial_config_policy),
-           used_mip_start_id_(0)
+           used_mip_start_id_(0),
+           force_worker_initial_configs_(force_worker_initial_configs)
         {}
 
         virtual ~LocalSearchEngine() = default;
@@ -181,8 +185,9 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             TuningObjective tuning_objective,
             bool mip_start = false,
             bool random_worker_initial_configs = true,
-            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs, mip_start_initial_config_policy),
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
+            bool force_worker_initial_configs = false
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs, mip_start_initial_config_policy, force_worker_initial_configs),
            use_shared_cache_(use_shared_cache)
         {}
 

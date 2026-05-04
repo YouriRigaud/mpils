@@ -136,6 +136,12 @@ class TunerMemory {
 
         std::optional<uint64_t> best_evaluation_without_mip_start_index_;                ///< Index of the best evaluation in the evaluations_ vector that did not use MIP start
         double best_objective_without_mip_start_ = std::numeric_limits<double>::max(); ///< Best objective value found so far among evaluations that did not use MIP start
+        std::unordered_map<int, uint64_t> best_evaluation_without_mip_start_index_by_worker_; ///< Best no-MIP-start evaluation index by worker id
+        std::unordered_map<int, double> best_objective_without_mip_start_by_worker_; ///< Best no-MIP-start objective by worker id
+        std::optional<uint64_t> best_exploration_evaluation_without_mip_start_index_; ///< Best exploration no-MIP-start evaluation index
+        double best_exploration_objective_without_mip_start_ = std::numeric_limits<double>::max(); ///< Best exploration no-MIP-start objective
+        std::unordered_map<int, uint64_t> best_exploration_evaluation_without_mip_start_index_by_worker_; ///< Best exploration no-MIP-start evaluation index by worker id
+        std::unordered_map<int, double> best_exploration_objective_without_mip_start_by_worker_; ///< Best exploration no-MIP-start objective by worker id
         std::optional<MipStartId> best_mip_start_id_; ///< ID of the MIP start with the best feasible upper bound
         double best_mip_start_upper_bound_ = std::numeric_limits<double>::max(); ///< Best feasible upper bound represented by a produced MIP start
 
@@ -260,6 +266,35 @@ class TunerMemory {
                 return nullptr;
             }
             return &configurations_by_id_.at(best_eval->configuration_id);
+        }
+
+        /** @brief Get the best no-MIP-start configuration found by a worker, or nullptr if none exists */
+        const Configuration* getBestConfigurationWithoutMipStartForWorker(int worker_id) const {
+            auto it = best_evaluation_without_mip_start_index_by_worker_.find(worker_id);
+            if (it == best_evaluation_without_mip_start_index_by_worker_.end()) {
+                return nullptr;
+            }
+            const EvaluationRecord& best_eval = evaluations_[it->second];
+            return &configurations_by_id_.at(best_eval.configuration_id);
+        }
+
+        /** @brief Get the best exploration no-MIP-start configuration, or nullptr if none exists */
+        const Configuration* getBestExplorationConfigurationWithoutMipStart() const {
+            if (!best_exploration_evaluation_without_mip_start_index_.has_value()) {
+                return nullptr;
+            }
+            const EvaluationRecord& best_eval = evaluations_[best_exploration_evaluation_without_mip_start_index_.value()];
+            return &configurations_by_id_.at(best_eval.configuration_id);
+        }
+
+        /** @brief Get the best exploration no-MIP-start configuration found by a worker, or nullptr if none exists */
+        const Configuration* getBestExplorationConfigurationWithoutMipStartForWorker(int worker_id) const {
+            auto it = best_exploration_evaluation_without_mip_start_index_by_worker_.find(worker_id);
+            if (it == best_exploration_evaluation_without_mip_start_index_by_worker_.end()) {
+                return nullptr;
+            }
+            const EvaluationRecord& best_eval = evaluations_[it->second];
+            return &configurations_by_id_.at(best_eval.configuration_id);
         }
 
         /** @brief Get a configuration by its ID, throws an exception if the ID is not found */
