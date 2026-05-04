@@ -53,8 +53,8 @@ inline SolverTerminationStatus parseSolverTerminationStatus(const std::string& v
 
 struct SolverWatchdogOptions {
     bool enabled = true;
-    double wall_time_factor = 1.0;
-    double wall_time_grace_seconds = 1.0;
+    double wall_time_factor = 1.25;
+    double wall_time_grace_seconds = 0.0;
 };
 
 class Solver {
