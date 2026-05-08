@@ -282,6 +282,33 @@ class IteratedLocalSearch {
         int world_size_ = 1;
         bool global_stop_published_ = false;
         static constexpr int kGlobalStopTag = 702;
+
+        int procs_per_ils_ = 1;
+        int ils_group_rank_ = 0;
+        MPI_Comm ils_comm_ = MPI_COMM_SELF;
+
+        struct ParallelBatchEntry {
+            int valid;
+            int is_stop;
+            char config_path[1024];
+        };
+
+        struct ParallelEvalResult {
+            double objective;
+            double gap;
+            double ub;
+            double lb;
+            double runtime;
+            int termination_status;
+            int _pad;
+        };
+
+        static constexpr int kParallelEvalResultTag = 704;
+
+        void runWorkerEvaluationService_();
+        std::vector<EvaluationRecord> evaluateBatch_(const std::vector<Configuration>& configs);
+        void broadcastStopSentinel_();
+        ParallelEvalResult runSolverOnFilePath_(const std::string& config_file_path);
 #endif
 
         void createSearchSpace_();

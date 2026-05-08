@@ -46,6 +46,7 @@ struct TunerOptions {
     std::optional<int> number_of_evaluations = std::nullopt;
     std::optional<int> exploration_budget_divisor = std::nullopt;
     int max_iterations = 15;
+    int mpi_procs_per_ils = 1;
     bool enable_mip_starts = true;
     bool random_worker_initial_configs = true;
     MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig;
@@ -94,6 +95,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --mip-start-initial-config MODE Set MIP-start worker initial config (producer_config or best_config)" << std::endl;
     std::cout << "  --random-worker-initial-configs Enable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << "  --no-random-worker-initial-configs Disable per-worker random initial configs for MPI ILS exploration" << std::endl;
+    std::cout << "  --mpi-procs-per-ils N           Number of MPI processes per ILS instance for parallel neighbor eval (default: 1)" << std::endl;
     std::cout << std::endl;
     std::cout << "If instance_file is provided as a positional argument, it overrides the default instance path." << std::endl;
 }
@@ -254,6 +256,14 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             }
             options.tuner_dir = normalizeTunerWorkingDirectory(argv[++i]);
             options.solver_log_file = options.tuner_dir + "solver/cplex.log";
+        } else if (std::strcmp(argv[i], "--mpi-procs-per-ils") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --mpi-procs-per-ils");
+            }
+            options.mpi_procs_per_ils = std::stoi(argv[++i]);
+            if (options.mpi_procs_per_ils <= 0) {
+                throw std::runtime_error("--mpi-procs-per-ils must be greater than 0");
+            }
         } else if (argv[i][0] != '-') {
             options.instance_file = std::string(argv[i]);
         } else {
@@ -445,6 +455,23 @@ int main(int argc, char** argv) {
         MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
         MPI_Comm_size(MPI_COMM_WORLD, &world_size);
         options.nb_workers = world_size;
+
+        if (world_size % options.mpi_procs_per_ils != 0) {
+            throw std::runtime_error(
+                "--mpi-procs-per-ils (" + std::to_string(options.mpi_procs_per_ils) +
+                ") must divide world_size (" + std::to_string(world_size) + ") evenly"
+            );
+        }
+
+        {
+            const int procs_per_ils  = options.mpi_procs_per_ils;
+            const int ils_group_id   = world_rank / procs_per_ils;
+            const int ils_group_rank = world_rank % procs_per_ils;
+            MPI_Comm ils_comm;
+            MPI_Comm_split(MPI_COMM_WORLD, ils_group_id, world_rank, &ils_comm);
+            setParallelILSInfo(ils_comm, ils_group_rank, procs_per_ils);
+        }
+
         if (world_rank == 0) {
             masterProcess(argc, argv, options);
         } else {

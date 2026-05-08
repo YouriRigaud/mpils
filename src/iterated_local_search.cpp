@@ -1091,6 +1091,57 @@ std::vector<Configuration> IteratedLocalSearch::generateNeighbors_(const Configu
 Configuration IteratedLocalSearch::iterativeFirstImprovement_(const Configuration& start_config) {
     Configuration current = search_space_.normalizeConfiguration(start_config);
 
+#ifdef USE_MPI
+    if (procs_per_ils_ > 1) {
+        const auto cached = memory_.getCachedObjectiveValue(current);
+        double current_obj = cached.has_value() ? cached.value() : evaluateConfiguration_(current);
+
+        while (!terminationCriterionMet_()) {
+            std::vector<Configuration> neighbors = generateNeighbors_(current);
+            std::shuffle(neighbors.begin(), neighbors.end(), rng_);
+
+            bool improved = false;
+            for (std::size_t batch_start = 0;
+                 batch_start < neighbors.size() && !terminationCriterionMet_();
+                 batch_start += static_cast<std::size_t>(procs_per_ils_)) {
+                const std::size_t batch_end = std::min(
+                    batch_start + static_cast<std::size_t>(procs_per_ils_),
+                    neighbors.size()
+                );
+                const std::vector<Configuration> batch(
+                    neighbors.begin() + static_cast<std::ptrdiff_t>(batch_start),
+                    neighbors.begin() + static_cast<std::ptrdiff_t>(batch_end)
+                );
+
+                const std::vector<EvaluationRecord> results = evaluateBatch_(batch);
+
+                double best_obj_in_batch = current_obj;
+                int best_idx = -1;
+                for (std::size_t i = 0; i < results.size(); ++i) {
+                    if (results[i].objective_value < best_obj_in_batch) {
+                        best_obj_in_batch = results[i].objective_value;
+                        best_idx = static_cast<int>(i);
+                    }
+                }
+
+                if (best_idx >= 0) {
+                    current = batch[static_cast<std::size_t>(best_idx)];
+                    current_obj = best_obj_in_batch;
+                    updateIncumbentIfNeeded_(current);
+                    improved = true;
+                    break;
+                }
+            }
+
+            if (!improved) {
+                break;
+            }
+        }
+
+        return current;
+    }
+#endif
+
     while (!terminationCriterionMet_()) {
         std::vector<Configuration> neighbors = generateNeighbors_(current);
         std::shuffle(neighbors.begin(), neighbors.end(), rng_);
@@ -1162,14 +1213,52 @@ void IteratedLocalSearch::run() {
 
     run_start_time_ = std::chrono::steady_clock::now();
 
+#ifdef USE_MPI
+    {
+        const auto& pils = getParallelILSInfo();
+        procs_per_ils_  = pils.procs_per_ils;
+        ils_group_rank_ = pils.ils_group_rank;
+        ils_comm_       = pils.ils_comm;
+    }
+
+    if (procs_per_ils_ > 1 && ils_group_rank_ > 0) {
+        runWorkerEvaluationService_();
+        return;
+    }
+#endif
+
     try {
         createSearchSpace_();
         seedSharedCache_();
         checkMipStartFile_();
         initializeFromSearchSpace_();
         injectInitialConfigurationIfAlreadyEvaluated_();
-        computeInitialConfiguration_();
-        computeRandomSampling_();
+
+#ifdef USE_MPI
+        if (procs_per_ils_ > 1) {
+            if (!memory_.getCachedObjectiveValue(current_configuration_).has_value()) {
+                std::vector<Configuration> init_batch;
+                init_batch.push_back(current_configuration_);
+                for (int i = 1; i < procs_per_ils_; ++i) {
+                    init_batch.push_back(search_space_.sampleRandomConfiguration(rng_, options_.use_mip_starts));
+                }
+                const std::vector<EvaluationRecord> init_results = evaluateBatch_(init_batch);
+                double best_obj = std::numeric_limits<double>::max();
+                for (std::size_t i = 0; i < init_results.size(); ++i) {
+                    if (init_results[i].objective_value < best_obj) {
+                        best_obj = init_results[i].objective_value;
+                        current_configuration_ = init_batch[i];
+                    }
+                }
+                updateIncumbentIfNeeded_(current_configuration_);
+            }
+        } else {
+#endif
+            computeInitialConfiguration_();
+            computeRandomSampling_();
+#ifdef USE_MPI
+        }
+#endif
 
         current_configuration_ = iterativeFirstImprovement_(current_configuration_);
         updateIncumbentIfNeeded_(current_configuration_);
@@ -1183,13 +1272,40 @@ void IteratedLocalSearch::run() {
             ++current_iteration_;
             Configuration candidate;
 
-            if (restart_distribution(rng_)) {
-                logger_.info("Restarting from a random configuration...");
-                candidate = search_space_.sampleRandomConfiguration(rng_, options_.use_mip_starts);
+#ifdef USE_MPI
+            if (procs_per_ils_ > 1) {
+                std::vector<Configuration> cands;
+                if (restart_distribution(rng_)) {
+                    logger_.info("Parallel restart: sampling ", procs_per_ils_, " random configurations...");
+                    for (int i = 0; i < procs_per_ils_; ++i) {
+                        cands.push_back(search_space_.sampleRandomConfiguration(rng_, options_.use_mip_starts));
+                    }
+                } else {
+                    logger_.info("Parallel perturbation: generating ", procs_per_ils_, " perturbed configurations...");
+                    for (int i = 0; i < procs_per_ils_; ++i) {
+                        cands.push_back(perturb_(current_configuration_));
+                    }
+                }
+                const std::vector<EvaluationRecord> cand_results = evaluateBatch_(cands);
+                double best_obj = std::numeric_limits<double>::max();
+                for (std::size_t i = 0; i < cand_results.size(); ++i) {
+                    if (cand_results[i].objective_value < best_obj) {
+                        best_obj = cand_results[i].objective_value;
+                        candidate = cands[i];
+                    }
+                }
             } else {
-                logger_.info("Applying perturbation to current configuration...");
-                candidate = perturb_(current_configuration_);
+#endif
+                if (restart_distribution(rng_)) {
+                    logger_.info("Restarting from a random configuration...");
+                    candidate = search_space_.sampleRandomConfiguration(rng_, options_.use_mip_starts);
+                } else {
+                    logger_.info("Applying perturbation to current configuration...");
+                    candidate = perturb_(current_configuration_);
+                }
+#ifdef USE_MPI
             }
+#endif
 
             candidate = iterativeFirstImprovement_(candidate);
 
@@ -1203,6 +1319,12 @@ void IteratedLocalSearch::run() {
         stop_condition_met_ = true;
         logger_.info("Stopping local search because the evaluation budget has been exhausted.");
     }
+
+#ifdef USE_MPI
+    if (procs_per_ils_ > 1) {
+        broadcastStopSentinel_();
+    }
+#endif
 
     if (options_.use_shared_cache) {
         shared_objective_cache_.pollIncoming();
@@ -1218,3 +1340,153 @@ void IteratedLocalSearch::run() {
                      memory_.getCachedObjectiveValue(incumbent_solution_).value());
     }
 }
+
+// ============================================================
+// Parallel ILS implementation (intra-group MPI)
+// ============================================================
+
+#ifdef USE_MPI
+
+IteratedLocalSearch::ParallelEvalResult IteratedLocalSearch::runSolverOnFilePath_(const std::string& config_file_path) {
+    ParallelEvalResult result{};
+    result.objective  = std::numeric_limits<double>::max();
+    result.gap        = std::numeric_limits<double>::max();
+    result.ub         = std::numeric_limits<double>::max();
+    result.lb         = std::numeric_limits<double>::max();
+    result.runtime    = -1.0;
+    result.termination_status = static_cast<int>(SolverTerminationStatus::Normal);
+    result._pad       = 0;
+
+    CPLEXSolver solver(
+        logger_,
+        options_.instance_file,
+        config_file_path,
+        options_.log_file_solver,
+        options_.nb_threads_solver,
+        options_.cutoff_solver_time,
+        options_.solver_time_mode,
+        options_.tuning_objective,
+        options_.solver_watchdog_options
+    );
+    solver.solve();
+
+    result.objective = solver.getObjectiveValue();
+    if (const auto gap = solver.getGap()) {
+        result.gap = gap.value();
+    }
+    if (const auto ub = solver.getUpperBound()) {
+        result.ub = ub.value();
+    }
+    if (const auto lb = solver.getLowerBound()) {
+        result.lb = lb.value();
+    }
+    result.runtime = solver.getSolveTimeSeconds();
+    result.termination_status = static_cast<int>(solver.getTerminationStatus());
+
+    return result;
+}
+
+std::vector<EvaluationRecord> IteratedLocalSearch::evaluateBatch_(const std::vector<Configuration>& configs) {
+    const int batch_size = static_cast<int>(configs.size());
+
+    std::vector<ParallelBatchEntry> batch_entries(procs_per_ils_);
+    for (int i = 0; i < procs_per_ils_; ++i) {
+        batch_entries[i].valid   = 0;
+        batch_entries[i].is_stop = 0;
+        batch_entries[i].config_path[0] = '\0';
+    }
+
+    std::filesystem::create_directories(options_.working_directory);
+
+    for (int i = 0; i < batch_size; ++i) {
+        const std::string path = options_.working_directory + "/parallel_" +
+            std::to_string(nb_evaluations_) + "_" + std::to_string(i) + ".prm";
+        if (static_cast<int>(path.size()) >= 1024) {
+            throw std::runtime_error("Config path too long for parallel batch: " + path);
+        }
+        configs[i].generateConfigFile(path);
+        std::copy(path.begin(), path.end(), batch_entries[i].config_path);
+        batch_entries[i].config_path[path.size()] = '\0';
+        batch_entries[i].valid = 1;
+    }
+
+    MPI_Bcast(batch_entries.data(),
+              procs_per_ils_ * static_cast<int>(sizeof(ParallelBatchEntry)),
+              MPI_BYTE, 0, ils_comm_);
+
+    std::vector<EvaluationRecord> results;
+
+    if (batch_size > 0) {
+        EvaluationRecord record = runSolverAndCreateRecord_(configs[0]);
+        memory_.addEvaluation(configs[0], record);
+        ++nb_evaluations_;
+        updateStopConditionFromGap_(record.gap);
+        results.push_back(record);
+    }
+
+    for (int i = 1; i < batch_size; ++i) {
+        ParallelEvalResult msg{};
+        MPI_Recv(&msg, sizeof(ParallelEvalResult), MPI_BYTE,
+                 i, kParallelEvalResultTag, ils_comm_, MPI_STATUS_IGNORE);
+
+        const std::optional<double> gap     = (msg.gap     < kMaxObjective) ? std::make_optional(msg.gap)     : std::nullopt;
+        const std::optional<double> ub      = (msg.ub      < kMaxObjective) ? std::make_optional(msg.ub)      : std::nullopt;
+        const std::optional<double> lb      = (msg.lb      < kMaxObjective) ? std::make_optional(msg.lb)      : std::nullopt;
+        const std::optional<double> runtime = (msg.runtime >= 0.0)          ? std::make_optional(msg.runtime) : std::nullopt;
+
+        EvaluationRecord record = createEvaluationRecord_(
+            configs[i],
+            msg.objective,
+            gap, ub, lb, runtime,
+            static_cast<SolverTerminationStatus>(msg.termination_status),
+            false, ""
+        );
+        memory_.addEvaluation(configs[i], record);
+        ++nb_evaluations_;
+        updateStopConditionFromGap_(gap);
+        results.push_back(record);
+    }
+
+    return results;
+}
+
+void IteratedLocalSearch::runWorkerEvaluationService_() {
+    logger_.info("Worker (ils_group_rank=", ils_group_rank_, ") entering parallel ILS evaluation service.");
+
+    while (true) {
+        std::vector<ParallelBatchEntry> batch_entries(procs_per_ils_);
+        MPI_Bcast(batch_entries.data(),
+                  procs_per_ils_ * static_cast<int>(sizeof(ParallelBatchEntry)),
+                  MPI_BYTE, 0, ils_comm_);
+
+        const ParallelBatchEntry& my_entry = batch_entries[ils_group_rank_];
+
+        if (my_entry.is_stop) {
+            break;
+        }
+
+        if (!my_entry.valid) {
+            continue;
+        }
+
+        ParallelEvalResult result = runSolverOnFilePath_(my_entry.config_path);
+        MPI_Send(&result, sizeof(ParallelEvalResult), MPI_BYTE,
+                 0, kParallelEvalResultTag, ils_comm_);
+    }
+
+    logger_.info("Worker (ils_group_rank=", ils_group_rank_, ") exiting parallel ILS evaluation service.");
+}
+
+void IteratedLocalSearch::broadcastStopSentinel_() {
+    std::vector<ParallelBatchEntry> batch_entries(procs_per_ils_);
+    for (int i = 0; i < procs_per_ils_; ++i) {
+        batch_entries[i].valid   = 0;
+        batch_entries[i].is_stop = 1;
+        batch_entries[i].config_path[0] = '\0';
+    }
+    MPI_Bcast(batch_entries.data(),
+              procs_per_ils_ * static_cast<int>(sizeof(ParallelBatchEntry)),
+              MPI_BYTE, 0, ils_comm_);
+}
+
+#endif
