@@ -216,6 +216,8 @@ class ParamILSEngine : public LocalSearchEngine {
 
         const std::vector<std::pair<int, std::vector<EvaluationRecord>>> getParamILSResults();
 
+        std::optional<double> paramils_wall_time_;
+
     public:
         ParamILSEngine(
             TunerMemory& memory,
@@ -235,8 +237,10 @@ class ParamILSEngine : public LocalSearchEngine {
             std::uint32_t base_seed,
             TuningObjective tuning_objective,
             bool mip_start = false,
-            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, nb_workers, base_seed, tuning_objective, mip_start, true, mip_start_initial_config_policy)
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
+            std::optional<double> paramils_wall_time = std::nullopt
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, nb_workers, base_seed, tuning_objective, mip_start, true, mip_start_initial_config_policy),
+           paramils_wall_time_(paramils_wall_time)
         {}
 
         std::vector<std::pair<int, std::vector<EvaluationRecord>>> run() override;
@@ -301,6 +305,7 @@ class Exploration {
         bool enable_mip_starts_;
         bool random_worker_initial_configs_;
         MipStartInitialConfigPolicy mip_start_initial_config_policy_;
+        std::optional<double> paramils_wall_time_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -331,7 +336,8 @@ class Exploration {
             std::optional<int> exploration_budget_divisor = std::nullopt,
             bool enable_mip_starts = true,
             bool random_worker_initial_configs = true,
-            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig
+            MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
+            std::optional<double> paramils_wall_time = std::nullopt
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -352,7 +358,8 @@ class Exploration {
            exploration_budget_divisor_(exploration_budget_divisor),
            enable_mip_starts_(enable_mip_starts),
            random_worker_initial_configs_(random_worker_initial_configs),
-           mip_start_initial_config_policy_(mip_start_initial_config_policy)
+           mip_start_initial_config_policy_(mip_start_initial_config_policy),
+           paramils_wall_time_(paramils_wall_time)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {

@@ -53,6 +53,7 @@ class Tuner {
         const ExpansionValueStrategy expansion_value_strategy_; ///< Value selection strategy used by expansion
         const double expansion_max_deviation_;   ///< Maximum allowed deviation for expansion classification
         const bool expansion_enable_early_stop_; ///< Whether expansion may stop early on improvement
+        const std::optional<double> paramils_wall_time_; ///< Optional wall-clock time budget for ParamILS
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -108,7 +109,8 @@ class Tuner {
             ExpansionSelectRule expansion_select_rule = ExpansionSelectRule::Strict,
             ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast,
             double expansion_max_deviation = std::numeric_limits<double>::max(),
-            bool expansion_enable_early_stop = true
+            bool expansion_enable_early_stop = true,
+            std::optional<double> paramils_wall_time = std::nullopt
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -134,9 +136,10 @@ class Tuner {
             expansion_value_strategy_(expansion_value_strategy),
             expansion_max_deviation_(expansion_max_deviation),
             expansion_enable_early_stop_(expansion_enable_early_stop),
+            paramils_wall_time_(paramils_wall_time),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_, paramils_wall_time_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_, expansion_enable_early_stop_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}

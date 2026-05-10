@@ -47,6 +47,7 @@ struct TunerOptions {
     std::optional<int> exploration_budget_divisor = std::nullopt;
     int max_iterations = 15;
     int mpi_procs_per_ils = 1;
+    std::optional<double> paramils_wall_time = std::nullopt;
     bool enable_mip_starts = true;
     bool random_worker_initial_configs = true;
     MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig;
@@ -96,6 +97,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --random-worker-initial-configs Enable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << "  --no-random-worker-initial-configs Disable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << "  --mpi-procs-per-ils N           Number of MPI processes per ILS instance for parallel neighbor eval (default: 1)" << std::endl;
+    std::cout << "  --paramils-wall-time SECONDS     Set wall-clock time budget for the ParamILS run (overrides cutoff_time * maxEvals)" << std::endl;
     std::cout << std::endl;
     std::cout << "If instance_file is provided as a positional argument, it overrides the default instance path." << std::endl;
 }
@@ -256,6 +258,15 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             }
             options.tuner_dir = normalizeTunerWorkingDirectory(argv[++i]);
             options.solver_log_file = options.tuner_dir + "solver/cplex.log";
+        } else if (std::strcmp(argv[i], "--paramils-wall-time") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --paramils-wall-time");
+            }
+            const double val = std::stod(argv[++i]);
+            if (val <= 0.0) {
+                throw std::runtime_error("--paramils-wall-time must be greater than 0");
+            }
+            options.paramils_wall_time = val;
         } else if (std::strcmp(argv[i], "--mpi-procs-per-ils") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --mpi-procs-per-ils");
@@ -397,7 +408,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.expansion_select_rule,
         options.expansion_value_strategy,
         options.expansion_max_deviation,
-        options.expansion_enable_early_stop
+        options.expansion_enable_early_stop,
+        options.paramils_wall_time
     );
     
     tuner.setup();

@@ -373,6 +373,12 @@ ExplorationRunStats Exploration::run() {
             nb_evaluations = 5;
         }
     }
+    if (paramils_wall_time_.has_value() &&
+        local_search_backend_ == LocalSearchBackend::ParamILS &&
+        !number_of_evaluations_override_.has_value()) {
+        nb_evaluations = std::numeric_limits<int>::max();
+        logger_.info("ParamILS wall-time budget set: using unlimited maxEvals (wall-time is the stopping criterion).");
+    }
     if (exploration_budget_divisor_.has_value()) {
         const int divisor = exploration_budget_divisor_.value();
         const int original_nb_evaluations = nb_evaluations;
@@ -433,7 +439,8 @@ ExplorationRunStats Exploration::run() {
                 base_seed_,
                 tuning_objective_,
                 enable_mip_starts_,
-                mip_start_initial_config_policy_
+                mip_start_initial_config_policy_,
+                paramils_wall_time_
             ));
             break;
     }
@@ -668,7 +675,10 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         myfile << "overall_obj = mean" << std::endl;
         myfile << "cutoff_time = " << cutoff_solver_time_ << std::endl;
         myfile << "maxEvals = " << max_evaluations_ << std::endl;
-        myfile << "wallclock-limit = " << cutoff_solver_time_*max_evaluations_ << std::endl;
+        const double wall_limit = paramils_wall_time_.has_value()
+            ? paramils_wall_time_.value()
+            : cutoff_solver_time_ * max_evaluations_;
+        myfile << "wallclock-limit = " << wall_limit << std::endl;
         myfile << "logfile = " << solver_log_file_ + "_iteration_paramils_" + std::to_string(iteration_) + "_worker_" + std::to_string(i) << std::endl;
         myfile << "paramfile = " << parameter_file_path << std::endl;
         myfile << "outdir = " << paramils_outdir << std::endl;
