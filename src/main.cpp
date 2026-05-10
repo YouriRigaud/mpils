@@ -304,13 +304,6 @@ void cleanTunerWorkingDirectory(const std::string& tuner_dir) {
 }
 
 void validateTunerOptions(const TunerOptions& options) {
-    if (options.local_search_backend == LocalSearchBackend::ParamILS &&
-        options.solver_time_mode == SolverTimeMode::Ticks) {
-        throw std::runtime_error(
-            "The ParamILS backend does not support '--solver-time-mode ticks'. "
-            "Use '--solver-time-mode seconds' or switch to the iterated_local_search backend."
-        );
-    }
     if (options.solver_watchdog_options.wall_time_factor < 0.0) {
         throw std::runtime_error("--solver-wall-factor must be non-negative");
     }

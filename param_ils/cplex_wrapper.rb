@@ -4,6 +4,7 @@ require_relative "param_reader.rb"
 #=== Deal with inputs.
 solver_threads = nil
 work_dir = "tuner_working_dir"
+use_ticks = false
 arg_index = 0
 
 while arg_index < ARGV.length
@@ -21,6 +22,9 @@ while arg_index < ARGV.length
 		end
 		work_dir = ARGV[arg_index + 1]
 		arg_index += 2
+	elsif ARGV[arg_index] == "--ticks"
+		use_ticks = true
+		arg_index += 1
 	else
 		break
 	end
@@ -114,7 +118,7 @@ cplex_lines << "set logfile #{logfile}"
 cplex_lines << "read #{instance_relname}"
 #cplex_lines << "set clocktype 2"
 #cplex_lines << "set mip limits nodes #{cutoff_length}"
-cplex_lines << "set timelimit #{cutoff_time}"
+cplex_lines << (use_ticks ? "set dettimelimit #{cutoff_time}" : "set timelimit #{cutoff_time}")
 
 if solver_threads && solver_threads > 0
 	cplex_lines << "set threads #{solver_threads}"

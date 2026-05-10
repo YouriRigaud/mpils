@@ -655,7 +655,13 @@ void ParamILSEngine::writeParamILSScenarioFiles() {
         ensureDirectoryExists(paramils_outdir);
         std::ofstream myfile;
         myfile.open(scenario_file_path);
-        myfile << "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb --threads " + std::to_string(nb_threads_solver_) + " --work-dir " + solver_working_dir << std::endl;
+        std::string algo_cmd = "algo = ruby " + param_ils_dir_ + "cplex_wrapper.rb"
+            + " --threads " + std::to_string(nb_threads_solver_)
+            + " --work-dir " + solver_working_dir;
+        if (solver_time_mode_ == SolverTimeMode::Ticks) {
+            algo_cmd += " --ticks";
+        }
+        myfile << algo_cmd << std::endl;
         myfile << "execdir = ." << std::endl;
         myfile << "deterministic = 1" << std::endl;
         myfile << "run_obj = " << tuning_obj << std::endl;
