@@ -75,6 +75,7 @@ class LocalSearchEngine {
         MipStartId used_mip_start_id_;
         std::string mip_start_file_;
         bool force_worker_initial_configs_;
+        bool mip_worker_strategy_;
 
         const Configuration& getInitialConfigurationForWorker(int worker_id) const;
         const std::vector<EvaluationRecord> parseCplexResultsFromLogFile(int run_obj, int worker_id);
@@ -108,7 +109,8 @@ class LocalSearchEngine {
             bool mip_start = false,
             bool random_worker_initial_configs = true,
             MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
-            bool force_worker_initial_configs = false
+            bool force_worker_initial_configs = false,
+            bool mip_worker_strategy = false
         ): memory_(memory),
            logger_(logger),
            initial_configurations_(initial_configurations),
@@ -129,7 +131,8 @@ class LocalSearchEngine {
            random_worker_initial_configs_(random_worker_initial_configs),
            mip_start_initial_config_policy_(mip_start_initial_config_policy),
            used_mip_start_id_(0),
-           force_worker_initial_configs_(force_worker_initial_configs)
+           force_worker_initial_configs_(force_worker_initial_configs),
+           mip_worker_strategy_(mip_worker_strategy)
         {}
 
         virtual ~LocalSearchEngine() = default;
@@ -186,8 +189,9 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
             bool mip_start = false,
             bool random_worker_initial_configs = true,
             MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
-            bool force_worker_initial_configs = false
-        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs, mip_start_initial_config_policy, force_worker_initial_configs),
+            bool force_worker_initial_configs = false,
+            bool mip_worker_strategy = false
+        ): LocalSearchEngine(memory, logger, initial_configurations, parameter_space, instance_file, param_ils_instance_file, solver_log_file, max_evaluations, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, nb_workers, base_seed, tuning_objective, mip_start, random_worker_initial_configs, mip_start_initial_config_policy, force_worker_initial_configs, mip_worker_strategy),
            use_shared_cache_(use_shared_cache)
         {}
 
@@ -217,6 +221,7 @@ class ParamILSEngine : public LocalSearchEngine {
         const std::vector<std::pair<int, std::vector<EvaluationRecord>>> getParamILSResults();
 
         std::optional<double> paramils_wall_time_;
+        bool mip_worker_strategy_ = false;
 
     public:
         ParamILSEngine(
@@ -306,6 +311,7 @@ class Exploration {
         bool random_worker_initial_configs_;
         MipStartInitialConfigPolicy mip_start_initial_config_policy_;
         std::optional<double> paramils_wall_time_;
+        bool mip_worker_strategy_;
 
         std::unique_ptr<LocalSearchEngine> engine_ = nullptr;
 
@@ -337,7 +343,8 @@ class Exploration {
             bool enable_mip_starts = true,
             bool random_worker_initial_configs = true,
             MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
-            std::optional<double> paramils_wall_time = std::nullopt
+            std::optional<double> paramils_wall_time = std::nullopt,
+            bool mip_worker_strategy = false
         ): memory_(memory),
            parameter_space_(parameter_space),
            logger_(logger),
@@ -359,7 +366,8 @@ class Exploration {
            enable_mip_starts_(enable_mip_starts),
            random_worker_initial_configs_(random_worker_initial_configs),
            mip_start_initial_config_policy_(mip_start_initial_config_policy),
-           paramils_wall_time_(paramils_wall_time)
+           paramils_wall_time_(paramils_wall_time),
+           mip_worker_strategy_(mip_worker_strategy)
         {}
 
         void setEngine(std::unique_ptr<LocalSearchEngine> engine) {
@@ -447,9 +455,10 @@ class IteratedLocalSearchWorker : public LocalSearchWorker {
         std::string instance_file_;
         std::string solver_log_file_;
         std::string mip_start_file_;
+        bool mip_worker_strategy_;
 
         void callIteratedLocalSearch();
-    
+
     public:
         IteratedLocalSearchWorker(
             int worker_id,
@@ -467,8 +476,9 @@ class IteratedLocalSearchWorker : public LocalSearchWorker {
             bool use_shared_cache,
             bool mip_start = false,
             bool produce_mip_starts = false,
-            bool random_worker_initial_configs = true
-        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, tuning_objective, base_seed, logger, mip_start, produce_mip_starts, use_shared_cache, random_worker_initial_configs), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file)
+            bool random_worker_initial_configs = true,
+            bool mip_worker_strategy = false
+        ): LocalSearchWorker(worker_id, iteration, nb_threads_solver, cutoff_solver_time, solver_time_mode, solver_watchdog_options, tuning_objective, base_seed, logger, mip_start, produce_mip_starts, use_shared_cache, random_worker_initial_configs), max_evaluations_(max_evaluations), instance_file_(instance_file), solver_log_file_(solver_log_file), mip_worker_strategy_(mip_worker_strategy)
         {}
 
         void run() override {

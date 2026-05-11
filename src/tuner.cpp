@@ -387,7 +387,11 @@ void Worker::receiveOrderFromMaster() {
 
 void Worker::runExplorationPhase() {
     worker_logger_.info("Worker ", worker_id_, " running exploration phase for iteration ", iteration_, ".");
-    const bool use_mip_start = enable_mip_starts_ && worker_id_ == 1;
+    const int procs_per_ils = getParallelILSInfo().procs_per_ils;
+    const int ils_group_id  = worker_id_ / procs_per_ils;
+    const bool use_mip_start = mip_worker_strategy_
+        ? enable_mip_starts_ && (ils_group_id == 1 || ils_group_id == 2)
+        : enable_mip_starts_ && ils_group_id == 1;
     const bool produce_mip_start = enable_mip_starts_;
     switch (local_search_backend_) {
         case LocalSearchBackend::IteratedLocalSearch:
@@ -407,7 +411,8 @@ void Worker::runExplorationPhase() {
                 use_shared_cache_,
                 use_mip_start,
                 produce_mip_start,
-                random_worker_initial_configs_
+                random_worker_initial_configs_,
+                mip_worker_strategy_
             ));
             break;
         case LocalSearchBackend::ParamILS:

@@ -293,10 +293,17 @@ const Configuration& LocalSearchEngine::getInitialConfigurationForWorker(int wor
         return initial_configurations_[0];
     }
 
-    if (worker_id == 1 && use_mip_start_) {
+#ifdef USE_MPI
+    const int procs_per_ils = getParallelILSInfo().procs_per_ils;
+#else
+    const int procs_per_ils = 1;
+#endif
+    const int ils_group_id  = worker_id / procs_per_ils;
+
+    if (ils_group_id == 1 && use_mip_start_) {
         if (mip_start_initial_config_policy_ == MipStartInitialConfigPolicy::BestConfig) {
             logger_.info(
-                "Worker 1 will start from worker 0 initial configuration for MIP start id ",
+                "Worker group 1 (M2) will start from worker 0 initial configuration for MIP start id ",
                 memory_.getBestMipStartId().value_or(0),
                 " because MIP-start initial configuration policy is best_config."
             );
@@ -316,9 +323,14 @@ const Configuration& LocalSearchEngine::getInitialConfigurationForWorker(int wor
         }
 
         logger_.info(
-            "Worker 1 requested MIP-start producer configuration, but none was available. ",
+            "Worker group 1 (M2) requested MIP-start producer configuration, but none was available. ",
             "Falling back to worker 0 initial configuration."
         );
+        return initial_configurations_[0];
+    }
+
+    if (mip_worker_strategy_ && ils_group_id == 2 && use_mip_start_) {
+        logger_.info("Worker group 2 (M3) will start from best cold config (same as M1).");
         return initial_configurations_[0];
     }
 
@@ -417,7 +429,8 @@ ExplorationRunStats Exploration::run() {
                 enable_mip_starts_,
                 random_worker_initial_configs_,
                 mip_start_initial_config_policy_,
-                local_search_backend_ == LocalSearchBackend::IteratedLocalSearch && nb_workers_ > 1 && !enable_mip_starts_
+                local_search_backend_ == LocalSearchBackend::IteratedLocalSearch && nb_workers_ > 1 && (!enable_mip_starts_ || mip_worker_strategy_),
+                mip_worker_strategy_
             ));
             break;
         case LocalSearchBackend::ParamILS:
@@ -1396,7 +1409,8 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
     int nb_workers = 0;
     MPI_Comm_size(MPI_COMM_WORLD, &nb_workers);
     const std::string search_space_file =
-        (random_worker_initial_configs_ || (!use_mip_start_ && !produce_mip_starts_ && nb_workers > 1)) && worker_id_ > 0
+        (random_worker_initial_configs_ || (mip_worker_strategy_ && use_mip_start_) ||
+         (!use_mip_start_ && !produce_mip_starts_ && nb_workers > 1)) && worker_id_ > 0
             ? ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt"
             : ils_working_dir_ + "search_space/search_space_file_" + std::to_string(iteration_) + ".txt";
     std::optional<MipStartId> used_mip_start_id = std::nullopt;
@@ -1407,7 +1421,8 @@ void IteratedLocalSearchWorker::callIteratedLocalSearch() {
             logger_
         );
     }
-    if (use_mip_start_ && worker_id_ == 1 && iteration_ > 1) {
+    const int ils_group_id_local = worker_id_ / getParallelILSInfo().procs_per_ils;
+    if (use_mip_start_ && (ils_group_id_local == 1 || (mip_worker_strategy_ && ils_group_id_local == 2)) && iteration_ > 1) {
         mip_start_file_ = mip_start_info.mip_start_file;
         used_mip_start_id = mip_start_info.mip_start_id;
         logger_.info("Worker ", worker_id_, " at iteration ", iteration_, " will use MIP start file: ", mip_start_file_);

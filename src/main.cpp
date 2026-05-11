@@ -48,6 +48,7 @@ struct TunerOptions {
     int max_iterations = 15;
     int mpi_procs_per_ils = 1;
     std::optional<double> paramils_wall_time = std::nullopt;
+    bool mip_worker_strategy = false;
     bool enable_mip_starts = true;
     bool random_worker_initial_configs = true;
     MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig;
@@ -98,6 +99,8 @@ void printHelp(const char* program_name) {
     std::cout << "  --no-random-worker-initial-configs Disable per-worker random initial configs for MPI ILS exploration" << std::endl;
     std::cout << "  --mpi-procs-per-ils N           Number of MPI processes per ILS instance for parallel neighbor eval (default: 1)" << std::endl;
     std::cout << "  --paramils-wall-time SECONDS     Set wall-clock time budget for the ParamILS run (overrides cutoff_time * maxEvals)" << std::endl;
+    std::cout << "  --mip-worker-strategy            Enable 4-role MIP worker strategy (M1 cold, M2 MIP chainer, M3 MIP exploiter, M4 cold explorer)" << std::endl;
+    std::cout << "  --no-mip-worker-strategy         Disable 4-role MIP worker strategy (default)" << std::endl;
     std::cout << std::endl;
     std::cout << "If instance_file is provided as a positional argument, it overrides the default instance path." << std::endl;
 }
@@ -258,6 +261,11 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             }
             options.tuner_dir = normalizeTunerWorkingDirectory(argv[++i]);
             options.solver_log_file = options.tuner_dir + "solver/cplex.log";
+        } else if (std::strcmp(argv[i], "--mip-worker-strategy") == 0) {
+            options.mip_worker_strategy = true;
+            options.enable_mip_starts = true;
+        } else if (std::strcmp(argv[i], "--no-mip-worker-strategy") == 0) {
+            options.mip_worker_strategy = false;
         } else if (std::strcmp(argv[i], "--paramils-wall-time") == 0) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --paramils-wall-time");
@@ -349,6 +357,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Expansion early stop: " << (options.expansion_enable_early_stop ? "enabled" : "disabled") << std::endl;
     std::cout << "Max iterations: " << options.max_iterations << std::endl;
     std::cout << "MIP starts: " << (options.enable_mip_starts ? "enabled" : "disabled") << std::endl;
+    std::cout << "MIP worker strategy: " << (options.mip_worker_strategy ? "enabled" : "disabled") << std::endl;
     std::cout << "MIP-start initial config policy: " << mipStartInitialConfigPolicyToString(options.mip_start_initial_config_policy) << std::endl;
     std::cout << "Random worker initial configs: " << (options.random_worker_initial_configs ? "enabled" : "disabled") << std::endl;
     std::cout << "Solver time mode: " << solverTimeModeToString(options.solver_time_mode) << std::endl;
@@ -409,7 +418,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.expansion_value_strategy,
         options.expansion_max_deviation,
         options.expansion_enable_early_stop,
-        options.paramils_wall_time
+        options.paramils_wall_time,
+        options.mip_worker_strategy
     );
     
     tuner.setup();
@@ -441,7 +451,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
 void workerProcess(int world_rank, TunerOptions options) {
     // init a clock to measure total tuning time
     GlobalTimer::start();
-    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.solver_time_mode, options.solver_watchdog_options, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs);
+    Worker worker(world_rank, options.instance_file, options.solver_log_file, options.nb_threads_solver, options.cutoff_solver_time, options.solver_time_mode, options.solver_watchdog_options, options.use_shared_cache, options.local_search_backend, options.seed, options.tuning_objective, options.enable_mip_starts, options.random_worker_initial_configs, options.mip_worker_strategy);
     worker.run();
 }
 #endif

@@ -54,6 +54,7 @@ class Tuner {
         const double expansion_max_deviation_;   ///< Maximum allowed deviation for expansion classification
         const bool expansion_enable_early_stop_; ///< Whether expansion may stop early on improvement
         const std::optional<double> paramils_wall_time_; ///< Optional wall-clock time budget for ParamILS
+        const bool mip_worker_strategy_;              ///< Whether to use the 4-role MIP worker strategy
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -110,7 +111,8 @@ class Tuner {
             ExpansionValueStrategy expansion_value_strategy = ExpansionValueStrategy::FirstLast,
             double expansion_max_deviation = std::numeric_limits<double>::max(),
             bool expansion_enable_early_stop = true,
-            std::optional<double> paramils_wall_time = std::nullopt
+            std::optional<double> paramils_wall_time = std::nullopt,
+            bool mip_worker_strategy = false
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -137,9 +139,10 @@ class Tuner {
             expansion_max_deviation_(expansion_max_deviation),
             expansion_enable_early_stop_(expansion_enable_early_stop),
             paramils_wall_time_(paramils_wall_time),
+            mip_worker_strategy_(mip_worker_strategy),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_, paramils_wall_time_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_, paramils_wall_time_, mip_worker_strategy_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_, expansion_enable_early_stop_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}
@@ -198,6 +201,7 @@ class Worker {
         TuningObjective tuning_objective_;
         bool enable_mip_starts_;
         bool random_worker_initial_configs_;
+        bool mip_worker_strategy_;
         int nb_evaluations_ = 0;  ///< Number of evaluations to perform in the local search phase
         double expansion_best_objective_value_ = 0.0;
         bool expansion_enable_early_stop_ = false;
@@ -226,7 +230,7 @@ class Worker {
         void runExpansionPhase();
 
     public:
-        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, SolverWatchdogOptions solver_watchdog_options, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts, bool random_worker_initial_configs)
+        Worker(int worker_id, const std::string& instance_file, const std::string& solver_log_file, int nb_threads_solver, double cutoff_solver_time, SolverTimeMode solver_time_mode, SolverWatchdogOptions solver_watchdog_options, bool use_shared_cache, LocalSearchBackend local_search_backend, std::uint32_t base_seed, TuningObjective tuning_objective, bool enable_mip_starts, bool random_worker_initial_configs, bool mip_worker_strategy = false)
             : worker_id_(worker_id),
               worker_step_(0),
               iteration_(1),
@@ -243,7 +247,8 @@ class Worker {
               base_seed_(base_seed),
               tuning_objective_(tuning_objective),
               enable_mip_starts_(enable_mip_starts),
-              random_worker_initial_configs_(random_worker_initial_configs)
+              random_worker_initial_configs_(random_worker_initial_configs),
+              mip_worker_strategy_(mip_worker_strategy)
         {}
 
         void run(); // Run the worker process
