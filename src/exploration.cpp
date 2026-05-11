@@ -27,7 +27,7 @@ std::uint32_t computeInitialConfigurationSeed(std::uint32_t base_seed, int itera
 }
 
 std::string buildParamILSCommand(const std::string& executable, std::uint32_t num_run, const std::string& scenario_file_path) {
-    return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path;
+    return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path + " > /dev/null 2>&1";
 }
 
 std::string buildHistoricalCacheSeedFilePath(const std::string& ils_working_dir, int iteration) {
