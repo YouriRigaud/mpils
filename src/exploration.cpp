@@ -311,21 +311,30 @@ const Configuration& LocalSearchEngine::getInitialConfigurationForWorker(int wor
         }
 
         const Configuration* producer_config = memory_.getBestMipStartProducerConfiguration();
-        if (producer_config != nullptr) {
+        if (producer_config != nullptr &&
+            producer_config->getConfigurationId() != initial_configurations_[0].getConfigurationId()) {
             logger_.info(
-                "Worker 1 will start from MIP-start producer configuration ",
+                "Worker group 1 (M2) will start from MIP-start producer configuration ",
                 producer_config->getConfigurationId(),
                 " for MIP start id ",
                 memory_.getBestMipStartId().value_or(0),
-                " because MIP-start initial configuration policy is producer_config."
+                "."
             );
             return *producer_config;
         }
 
-        logger_.info(
-            "Worker group 1 (M2) requested MIP-start producer configuration, but none was available. ",
-            "Falling back to worker 0 initial configuration."
-        );
+        if (producer_config != nullptr) {
+            logger_.info(
+                "Worker group 1 (M2) producer config matches best cold config — falling back to random config for diversity."
+            );
+        } else {
+            logger_.info(
+                "Worker group 1 (M2) no producer config available — falling back to random config for diversity."
+            );
+        }
+        if (worker_id < static_cast<int>(initial_configurations_.size())) {
+            return initial_configurations_[worker_id];
+        }
         return initial_configurations_[0];
     }
 
