@@ -29,7 +29,7 @@ struct TunerOptions {
     std::string tuner_dir = "./tuner_working_dir/";
     std::string parameters_file = "./cplex/params_12_cpx.txt";
     std::string instance_file = "./cplex/30n20b8.mps";
-    std::string param_ils_instance_file = "./cplex/instances.txt";
+    std::string param_ils_instance_file = "";
     std::string solver_log_file = "./tuner_working_dir/solver/cplex.log";
     int nb_initial_selected_parameters = 10;
     int nb_parameter_to_evaluate_expansion = 10;
@@ -68,7 +68,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --clean-working-dir             Remove generated subdirectories and transient files after tuning" << std::endl;
     std::cout << "  --no-clean-working-dir          Keep the full working directory after tuning (default)" << std::endl;
     std::cout << "  --parameters-file PATH          Set the parameter definition file" << std::endl;
-    std::cout << "  --paramils-instance-file PATH   Set the ParamILS instance list file" << std::endl;
+    std::cout << "  --paramils-instance-file PATH   Set the ParamILS instance list file (default: <working-dir>/param_ils/instances.txt)" << std::endl;
     std::cout << "  --initial-selected-parameters N Set the number of initially selected parameters" << std::endl;
     std::cout << "  --expansion-parameter-budget N  Set the number of residual parameters evaluated in expansion" << std::endl;
     std::cout << "  --solver-threads N              Set the number of solver threads" << std::endl;
@@ -288,6 +288,9 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
         } else {
             throw std::runtime_error("Unknown command line option: " + std::string(argv[i]));
         }
+    }
+    if (options.param_ils_instance_file.empty()) {
+        options.param_ils_instance_file = options.tuner_dir + "param_ils/instances.txt";
     }
 }
 
