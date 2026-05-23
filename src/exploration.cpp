@@ -26,8 +26,8 @@ std::uint32_t computeInitialConfigurationSeed(std::uint32_t base_seed, int itera
     return base_seed + 100000u + static_cast<std::uint32_t>(iteration - 1);
 }
 
-std::string buildParamILSCommand(const std::string& executable, std::uint32_t num_run, const std::string& scenario_file_path) {
-    return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path + " > /dev/null 2>&1";
+std::string buildParamILSCommand(const std::string& executable, std::uint32_t num_run, const std::string& scenario_file_path, const std::string& stderr_log_path) {
+    return "ruby " + executable + " -numRun " + std::to_string(num_run) + " -scenariofile " + scenario_file_path + " > /dev/null 2> " + stderr_log_path;
 }
 
 std::string buildHistoricalCacheSeedFilePath(const std::string& ils_working_dir, int iteration) {
@@ -719,10 +719,12 @@ void ParamILSEngine::callParamILS() {
 
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(0) + ".txt";
     const std::uint32_t num_run = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers_, 0);
-    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
+    std::string stderr_log = param_ils_working_dir_ + "paramils_stderr_iter_" + std::to_string(iteration_) + "_worker_0.log";
+    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path, stderr_log);
+    logger_.info("ParamILS command: ", command);
     int ret = system(command.c_str());
     if (ret != 0) {
-        logger_.info("Error calling ParamILS executable.");
+        logger_.info("Error calling ParamILS executable (stderr: ", stderr_log, ").");
     }
 
     logger_.info("ParamILS executable call completed.");
@@ -1386,10 +1388,12 @@ void ParamILSWorker::callParamILS() {
 #endif
     std::string scenario_file_path = param_ils_working_dir_ + "scenario/scenario_file_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".txt";
     const std::uint32_t num_run = computeLocalSearchRunSeed(base_seed_, iteration_, nb_workers, worker_id_);
-    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path);
+    std::string stderr_log = param_ils_working_dir_ + "paramils_stderr_iter_" + std::to_string(iteration_) + "_worker_" + std::to_string(worker_id_) + ".log";
+    std::string command = buildParamILSCommand(param_ils_dir_ + param_ils_executable_, num_run, scenario_file_path, stderr_log);
+    logger_.info("ParamILS command: ", command);
     int ret = system(command.c_str());
     if (ret != 0) {
-        logger_.info("Error calling ParamILS executable for worker ", worker_id_, " at iteration ", iteration_);
+        logger_.info("Error calling ParamILS executable for worker ", worker_id_, " at iteration ", iteration_, " (stderr: ", stderr_log, ")");
     }
 }
 
