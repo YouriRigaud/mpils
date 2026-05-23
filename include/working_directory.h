@@ -53,4 +53,19 @@ inline std::string buildTunerPath(const std::string& relative_path) {
     return getTunerWorkingDirectory() + relative_path;
 }
 
+inline std::string& paramILSSourceDirStorage() {
+    static std::string dir = "./param_ils/";
+    return dir;
+}
+
+inline void setParamILSSourceDir(const std::string& project_dir) {
+    std::string d = project_dir;
+    if (!d.empty() && d.back() != '/') d.push_back('/');
+    paramILSSourceDirStorage() = d + "param_ils/";
+}
+
+inline const std::string& getParamILSSourceDir() {
+    return paramILSSourceDirStorage();
+}
+
 #endif // WORKING_DIRECTORY_H

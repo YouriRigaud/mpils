@@ -27,6 +27,7 @@
 // Use this struct to tune the options of the tuner
 struct TunerOptions {
     std::string tuner_dir = "./tuner_working_dir/";
+    std::string project_dir = "./";
     std::string parameters_file = "./cplex/params_12_cpx.txt";
     std::string instance_file = "./cplex/30n20b8.mps";
     std::string param_ils_instance_file = "";
@@ -65,6 +66,7 @@ void printHelp(const char* program_name) {
     std::cout << "Options:" << std::endl;
     std::cout << "  --help                          Show this help message and exit" << std::endl;
     std::cout << "  --working-dir PATH              Set the tuner working directory" << std::endl;
+    std::cout << "  --project-dir PATH              Set the MPILS project root directory (must contain param_ils/)" << std::endl;
     std::cout << "  --clean-working-dir             Remove generated subdirectories and transient files after tuning" << std::endl;
     std::cout << "  --no-clean-working-dir          Keep the full working directory after tuning (default)" << std::endl;
     std::cout << "  --parameters-file PATH          Set the parameter definition file" << std::endl;
@@ -261,6 +263,11 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             }
             options.tuner_dir = normalizeTunerWorkingDirectory(argv[++i]);
             options.solver_log_file = options.tuner_dir + "solver/cplex.log";
+        } else if (std::strcmp(argv[i], "--project-dir") == 0) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing value for --project-dir");
+            }
+            options.project_dir = argv[++i];
         } else if (std::strcmp(argv[i], "--mip-worker-strategy") == 0) {
             options.mip_worker_strategy = true;
             options.enable_mip_starts = true;
@@ -351,6 +358,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     std::cout << "Seed: " << options.seed << std::endl;
     std::cout << "Tuning objective: " << tuningObjectiveToString(options.tuning_objective) << std::endl;
     std::cout << "Parameters file: " << options.parameters_file << std::endl;
+    std::cout << "Project directory: " << options.project_dir << std::endl;
     std::cout << "ParamILS instance file: " << options.param_ils_instance_file << std::endl;
     std::cout << "Initial selected parameters: " << options.nb_initial_selected_parameters << std::endl;
     std::cout << "Expansion parameter budget: " << options.nb_parameter_to_evaluate_expansion << std::endl;
@@ -465,6 +473,7 @@ int main(int argc, char** argv) {
         getTunerOptions(argc, argv, options);
         validateTunerOptions(options);
         setTunerWorkingDirectory(options.tuner_dir);
+        setParamILSSourceDir(options.project_dir);
 
 #ifdef USE_MPI
         MPI_Init(&argc, &argv);

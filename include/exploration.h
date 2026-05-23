@@ -200,7 +200,7 @@ class IteratedLocalSearchEngine : public LocalSearchEngine {
 
 class ParamILSEngine : public LocalSearchEngine {
     private:
-        const std::string param_ils_dir_ = "param_ils/";
+        const std::string param_ils_dir_ = getParamILSSourceDir();
         const std::string param_ils_executable_ = "param_ils_2_3_run.rb";
         const std::string param_ils_working_dir_ = buildTunerPath("param_ils/");
         std::string parameter_file_;
@@ -422,7 +422,7 @@ class LocalSearchWorker {
 
 class ParamILSWorker : public LocalSearchWorker {
     private:
-        const std::string param_ils_dir_ = "param_ils/";
+        const std::string param_ils_dir_ = getParamILSSourceDir();
         const std::string param_ils_executable_ = "param_ils_2_3_run.rb";
         const std::string param_ils_working_dir_ = buildTunerPath("param_ils/");
 
