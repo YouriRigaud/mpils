@@ -82,26 +82,10 @@ void TunerMemory::updateBestEvaluation_(const EvaluationRecord& record) {
         best_evaluation_without_mip_start_index_ = evaluations_.size() - 1;
         is_new_best = true;
     }
-    if (!record.mip_start_used && record.worker_id >= 0) {
-        auto worker_best_it = best_objective_without_mip_start_by_worker_.find(record.worker_id);
-        if (worker_best_it == best_objective_without_mip_start_by_worker_.end() ||
-            record.objective_value < worker_best_it->second) {
-            best_objective_without_mip_start_by_worker_[record.worker_id] = record.objective_value;
-            best_evaluation_without_mip_start_index_by_worker_[record.worker_id] = evaluations_.size() - 1;
-        }
-    }
     if (!record.mip_start_used && record.phase == 0) {
         if (record.objective_value < best_exploration_objective_without_mip_start_) {
             best_exploration_objective_without_mip_start_ = record.objective_value;
             best_exploration_evaluation_without_mip_start_index_ = evaluations_.size() - 1;
-        }
-        if (record.worker_id >= 0) {
-            auto worker_best_it = best_exploration_objective_without_mip_start_by_worker_.find(record.worker_id);
-            if (worker_best_it == best_exploration_objective_without_mip_start_by_worker_.end() ||
-                record.objective_value < worker_best_it->second) {
-                best_exploration_objective_without_mip_start_by_worker_[record.worker_id] = record.objective_value;
-                best_exploration_evaluation_without_mip_start_index_by_worker_[record.worker_id] = evaluations_.size() - 1;
-            }
         }
     }
     if (is_new_best) {

@@ -198,20 +198,6 @@ Configuration sampleInitialConfiguration(
     return Configuration(config_map, false);
 }
 
-Configuration sampleInitialConfigurationDifferentFrom(
-    ParameterSpace& parameter_space,
-    std::mt19937& rng,
-    const Configuration& excluded_config
-) {
-    Configuration sampled;
-    for (int attempt = 0; attempt < 100; ++attempt) {
-        sampled = sampleInitialConfiguration(parameter_space, rng);
-        if (!(sampled == excluded_config)) {
-            return sampled;
-        }
-    }
-    return sampled;
-}
 
 } // namespace
 
@@ -221,44 +207,6 @@ std::vector<Configuration> Exploration::selectInitialConfigurations() {
     logger_.info("Selecting initial configurations for tuning phase...");
     std::vector<Configuration> initial_configurations;
     std::mt19937 rng(computeInitialConfigurationSeed(base_seed_, iteration_));
-
-    const bool use_ils_no_mip_multi_worker_policy =
-        local_search_backend_ == LocalSearchBackend::IteratedLocalSearch &&
-        nb_workers_ > 1 &&
-        !enable_mip_starts_;
-
-    if (use_ils_no_mip_multi_worker_policy) {
-        const Configuration* worker_0_best = memory_.getBestExplorationConfigurationWithoutMipStartForWorker(0);
-        const Configuration* global_best_without_mip = memory_.getBestExplorationConfigurationWithoutMipStart();
-
-        if (worker_0_best != nullptr) {
-            logger_.info("Using worker 0 best exploration configuration without MIP start as master ILS initial configuration.");
-            initial_configurations.push_back(withoutMipStart(*worker_0_best));
-        } else if (global_best_without_mip != nullptr) {
-            logger_.info("No worker 0 best exploration configuration found; using global best exploration configuration without MIP start as master ILS initial configuration.");
-            initial_configurations.push_back(withoutMipStart(*global_best_without_mip));
-        } else {
-            logger_.info("No best exploration configuration without MIP start in memory; using default master ILS initial configuration.");
-            initial_configurations.push_back(withoutMipStart(memory_.getDefaultConfiguration()));
-        }
-
-        if (global_best_without_mip != nullptr && !(withoutMipStart(*global_best_without_mip) == initial_configurations[0])) {
-            logger_.info("Using global best exploration configuration without MIP start as worker 1 ILS initial configuration.");
-            initial_configurations.push_back(withoutMipStart(*global_best_without_mip));
-        } else {
-            logger_.info("Worker 1 global-best exploration initial configuration matches master; using a random diversified initial configuration.");
-            initial_configurations.push_back(sampleInitialConfigurationDifferentFrom(parameter_space_, rng, initial_configurations[0]));
-            if (initial_configurations[1] == initial_configurations[0]) {
-                logger_.info("Worker 1 random initial configuration still matches master after retries; the selected parameter space may not contain an alternative.");
-            }
-        }
-
-        while (initial_configurations.size() < static_cast<size_t>(nb_workers_)) {
-            initial_configurations.push_back(sampleInitialConfiguration(parameter_space_, rng));
-        }
-
-        return initial_configurations;
-    }
 
     if (local_search_backend_ == LocalSearchBackend::IteratedLocalSearch) {
         const Configuration* global_best_exploration_without_mip =
