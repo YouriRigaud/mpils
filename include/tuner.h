@@ -103,6 +103,7 @@ class Tuner {
             TuningObjective tuning_objective,
             std::optional<int> number_of_evaluations = std::nullopt,
             std::optional<int> exploration_budget_divisor = std::nullopt,
+            int exploration_budget_factor = 5,
             int max_iterations = 15,
             bool enable_mip_starts = true,
             bool random_worker_initial_configs = true,
@@ -142,7 +143,7 @@ class Tuner {
             mip_worker_strategy_(mip_worker_strategy),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
-            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_, paramils_wall_time_, mip_worker_strategy_),
+            exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, exploration_budget_factor, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_, paramils_wall_time_, mip_worker_strategy_),
             expansion_(logger_, memory_, parameter_space_, tuner_dir_, instance_file_, solver_log_file_, iteration_, nb_parameter_to_evaluate_expansion, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, tuning_objective_, expansion_select_rule_, expansion_value_strategy_, expansion_max_deviation_, expansion_enable_early_stop_),
             pruning_(logger_, memory_, parameter_space_, iteration_)
         {}

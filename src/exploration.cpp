@@ -303,28 +303,7 @@ const Configuration& LocalSearchEngine::getInitialConfigurationForWorker(int wor
 }
 
 int Exploration::selectNumberOfEvaluations() {
-    // Implementation to select number of evaluations for tuning phase
-    logger_.info("Selecting number of evaluations for tuning phase...");
-    int factor;
-    switch (iteration_)
-    {
-    case 1:
-        factor = 2;
-        return factor * (parameter_space_.getSelectedParameters().size());
-    case 2:
-        factor = 3;
-        break;
-    case 3:
-        factor = 5;
-        break;
-    case 4:
-        factor = 7;
-        break;
-    default:
-        factor = 9;
-        break;
-    }
-    return factor * parameter_space_.getSelectedParameters().size();
+    return exploration_budget_factor_ * static_cast<int>(parameter_space_.getSelectedParameters().size());
 }
 
 ExplorationRunStats Exploration::run() {
@@ -335,12 +314,6 @@ ExplorationRunStats Exploration::run() {
         logger_.info("Using explicit evaluation budget override: ", nb_evaluations);
     } else {
         nb_evaluations = selectNumberOfEvaluations();
-        if (nb_evaluations > 30) {
-            nb_evaluations = 30;
-        }
-        if (nb_evaluations < 5) {
-            nb_evaluations = 5;
-        }
     }
     if (paramils_wall_time_.has_value() &&
         local_search_backend_ == LocalSearchBackend::ParamILS &&
