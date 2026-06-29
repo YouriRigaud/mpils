@@ -458,7 +458,8 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.expansion_max_deviation,
         options.expansion_enable_early_stop,
         options.paramils_wall_time,
-        options.mip_worker_strategy
+        options.mip_worker_strategy,
+        options.clean_working_dir
     );
     
     tuner.setup();

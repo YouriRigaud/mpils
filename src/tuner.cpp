@@ -267,6 +267,46 @@ bool Tuner::stopConditionMet() {
 }
 
 
+void Tuner::cleanExplorationIterationFiles(int iter) {
+    namespace fs = std::filesystem;
+    const std::string s = std::to_string(iter);
+
+    auto delFiles = [&](const std::string& dir, const std::string& marker) {
+        if (!fs::exists(dir)) return;
+        for (const auto& e : fs::directory_iterator(dir))
+            if (e.is_regular_file() && e.path().filename().string().find(marker) != std::string::npos)
+                fs::remove(e.path());
+    };
+    auto delDirs = [&](const std::string& dir, const std::string& marker) {
+        if (!fs::exists(dir)) return;
+        for (const auto& e : fs::directory_iterator(dir))
+            if (e.is_directory() && e.path().filename().string().find(marker) != std::string::npos)
+                fs::remove_all(e.path());
+    };
+
+    delDirs(tuner_dir_ + "iterated_local_search/",           "run_" + s + "_worker_");
+    delFiles(tuner_dir_ + "iterated_local_search/search_space/", "search_space_file_" + s);
+    delFiles(tuner_dir_ + "iterated_local_search/search_space/", "shared_cache_seed_" + s + ".");
+    delFiles(tuner_dir_ + "iterated_local_search/local_results/", "local_results_" + s + "_worker_");
+    delFiles(tuner_dir_ + "solver/", "_iteration_ils_" + s + "_worker_");
+    delFiles(tuner_dir_ + "solver/", "_iteration_paramils_" + s + "_worker_");
+    delFiles(tuner_dir_ + "param_ils/parameter/", "_" + s + "_worker_");
+    delFiles(tuner_dir_ + "param_ils/scenario/", "_" + s + "_worker_");
+
+    logger_.info("Cleaned transient exploration files for iteration ", iter);
+}
+
+void Tuner::cleanExpansionIterationFiles(int iter) {
+    namespace fs = std::filesystem;
+    const std::string dir = tuner_dir_ + "solver/";
+    const std::string marker = "_iteration_expansion_" + std::to_string(iter) + "_worker_";
+    if (!fs::exists(dir)) return;
+    for (const auto& e : fs::directory_iterator(dir))
+        if (e.is_regular_file() && e.path().filename().string().find(marker) != std::string::npos)
+            fs::remove(e.path());
+    logger_.info("Cleaned transient expansion files for iteration ", iter);
+}
+
 void Tuner::run() {
     logger_.info("Running the MPILS tuner");
     while (true) {
@@ -278,6 +318,7 @@ void Tuner::run() {
         int phase_start_time = GlobalTimer::elapsedSeconds();
         const ExplorationRunStats exploration_stats = exploration_.run();
         printExplorationCompleted(iteration_, exploration_stats, elapsedSince(phase_start_time));
+        if (clean_working_dir_) cleanExplorationIterationFiles(iteration_);
 
         if (exploration_only_) {
             logger_.info("Stopping after exploration phase because exploration-only mode is enabled.");
@@ -286,7 +327,7 @@ void Tuner::run() {
 #endif
             break;
         }
-        
+
         // Check stopping condition
         if (stopConditionMet()) {
 #ifdef USE_MPI
@@ -300,6 +341,7 @@ void Tuner::run() {
         phase_start_time = GlobalTimer::elapsedSeconds();
         const ExpansionRunStats expansion_stats = expansion_.run();
         printExpansionCompleted(iteration_, expansion_stats, elapsedSince(phase_start_time));
+        if (clean_working_dir_) cleanExpansionIterationFiles(iteration_);
 
         // Check stopping condition
         if (memory_.hasEvaluationAtOrBelowGap(0.0)) {

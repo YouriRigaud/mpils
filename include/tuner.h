@@ -55,6 +55,7 @@ class Tuner {
         const bool expansion_enable_early_stop_; ///< Whether expansion may stop early on improvement
         const std::optional<double> paramils_wall_time_; ///< Optional wall-clock time budget for ParamILS
         const bool mip_worker_strategy_;              ///< Whether to use the 4-role MIP worker strategy
+        const bool clean_working_dir_;               ///< Whether to delete transient per-iteration files after each phase
         TunerMemory memory_;                       ///< Memory to store configurations tested
         ParameterSpace parameter_space_;           ///< Parameter space
         Exploration exploration_;                  ///< Exploration component
@@ -75,6 +76,9 @@ class Tuner {
         bool stopConditionMet(); // Check if stopping condition is met
 
         void writeParametersIdToFile(const Configuration& config, const std::string& filepath); // Write parameter IDs of a configuration to a file
+
+        void cleanExplorationIterationFiles(int iter);
+        void cleanExpansionIterationFiles(int iter);
 
 #ifdef USE_MPI
         void sendStopOrderToWorkers();
@@ -113,7 +117,8 @@ class Tuner {
             double expansion_max_deviation = std::numeric_limits<double>::max(),
             bool expansion_enable_early_stop = true,
             std::optional<double> paramils_wall_time = std::nullopt,
-            bool mip_worker_strategy = false
+            bool mip_worker_strategy = false,
+            bool clean_working_dir = false
         ):  logger_(level, out),
             tuner_dir_(tuner_dir),
             parameters_file_(parameters_file),
@@ -141,6 +146,7 @@ class Tuner {
             expansion_enable_early_stop_(expansion_enable_early_stop),
             paramils_wall_time_(paramils_wall_time),
             mip_worker_strategy_(mip_worker_strategy),
+            clean_working_dir_(clean_working_dir),
             memory_(TunerMemory(logger_)),
             parameter_space_(ParameterSpace(getParameters())),
             exploration_(memory_, parameter_space_, logger_, iteration_, instance_file_, param_ils_instance_file_, solver_log_file_, nb_threads_solver_, cutoff_solver_time_, solver_time_mode_, solver_watchdog_options_, nb_workers_, use_shared_cache_, local_search_backend_, base_seed_, tuning_objective_, number_of_evaluations, exploration_budget_divisor, exploration_budget_factors, enable_mip_starts_, random_worker_initial_configs_, mip_start_initial_config_policy_, paramils_wall_time_, mip_worker_strategy_),
