@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <string>
+#include <vector>
 #include <fstream>
 #include <optional>
 
@@ -46,7 +47,7 @@ struct TunerOptions {
     TuningObjective tuning_objective = TuningObjective::Gap;
     std::optional<int> number_of_evaluations = std::nullopt;
     std::optional<int> exploration_budget_divisor = std::nullopt;
-    int exploration_budget_factor = 5;
+    std::vector<int> exploration_budget_factors = {5};
     int max_iterations = 15;
     int mpi_procs_per_ils = 1;
     std::optional<double> paramils_wall_time = std::nullopt;
@@ -85,7 +86,7 @@ void printHelp(const char* program_name) {
     std::cout << "  --seed N                        Set the base random seed" << std::endl;
     std::cout << "  --tuning-objective NAME         Set the tuning objective (gap or upper_bound)" << std::endl;
     std::cout << "  --number-of-evaluations N       Override the exploration evaluation budget" << std::endl;
-    std::cout << "  --exploration-budget-factor K   Set the exploration budget factor K (budget = K * nb_selected_params, default: 5)" << std::endl;
+    std::cout << "  --exploration-budget-factor K[,K2,K3,...]  Set the exploration budget factor per iteration (budget = K_i * nb_selected_params). Single value applies to all iterations; list uses K_i for iteration i and last value for subsequent ones. Default: 5" << std::endl;
     std::cout << "  --divide-exploration-budget N   Divide the exploration evaluation budget by N" << std::endl;
     std::cout << "  --max-iterations N              Set the maximum number of tuner iterations" << std::endl;
     std::cout << "  --expansion-select-rule MODE    Set expansion selection comparison (strict or inclusive)" << std::endl;
@@ -220,9 +221,19 @@ void getTunerOptions(int argc, char** argv, TunerOptions& options) {
             if (i + 1 >= argc) {
                 throw std::runtime_error("Missing value for --exploration-budget-factor");
             }
-            options.exploration_budget_factor = std::stoi(argv[++i]);
-            if (options.exploration_budget_factor <= 0) {
-                throw std::runtime_error("--exploration-budget-factor must be greater than 0");
+            std::string arg = argv[++i];
+            options.exploration_budget_factors.clear();
+            std::size_t pos = 0;
+            while (true) {
+                std::size_t comma = arg.find(',', pos);
+                std::string token = arg.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+                int val = std::stoi(token);
+                if (val <= 0) {
+                    throw std::runtime_error("--exploration-budget-factor values must be greater than 0");
+                }
+                options.exploration_budget_factors.push_back(val);
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
             }
         } else if (std::strcmp(argv[i], "--max-iterations") == 0) {
             if (i + 1 >= argc) {
@@ -394,7 +405,12 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
     } else {
         std::cout << "auto" << std::endl;
     }
-    std::cout << "Exploration budget factor: " << options.exploration_budget_factor << std::endl;
+    std::cout << "Exploration budget factors: ";
+    for (std::size_t j = 0; j < options.exploration_budget_factors.size(); ++j) {
+        if (j > 0) std::cout << ",";
+        std::cout << options.exploration_budget_factors[j];
+    }
+    std::cout << std::endl;
     std::cout << "Exploration budget divisor: ";
     if (options.exploration_budget_divisor.has_value()) {
         std::cout << options.exploration_budget_divisor.value() << std::endl;
@@ -432,7 +448,7 @@ void masterProcess(int argc, char** argv, TunerOptions options) {
         options.tuning_objective,
         options.number_of_evaluations,
         options.exploration_budget_divisor,
-        options.exploration_budget_factor,
+        options.exploration_budget_factors,
         options.max_iterations,
         options.enable_mip_starts,
         options.random_worker_initial_configs,

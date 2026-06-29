@@ -17,6 +17,7 @@
 #include "working_directory.h"
 
 #include <string>
+#include <vector>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -307,7 +308,7 @@ class Exploration {
         TuningObjective tuning_objective_;
         std::optional<int> number_of_evaluations_override_;
         std::optional<int> exploration_budget_divisor_;
-        int exploration_budget_factor_;
+        std::vector<int> exploration_budget_factors_;
         bool enable_mip_starts_;
         bool random_worker_initial_configs_;
         MipStartInitialConfigPolicy mip_start_initial_config_policy_;
@@ -341,7 +342,7 @@ class Exploration {
             TuningObjective tuning_objective,
             std::optional<int> number_of_evaluations_override = std::nullopt,
             std::optional<int> exploration_budget_divisor = std::nullopt,
-            int exploration_budget_factor = 5,
+            std::vector<int> exploration_budget_factors = {5},
             bool enable_mip_starts = true,
             bool random_worker_initial_configs = true,
             MipStartInitialConfigPolicy mip_start_initial_config_policy = MipStartInitialConfigPolicy::ProducerConfig,
@@ -365,7 +366,7 @@ class Exploration {
            tuning_objective_(tuning_objective),
            number_of_evaluations_override_(number_of_evaluations_override),
            exploration_budget_divisor_(exploration_budget_divisor),
-           exploration_budget_factor_(exploration_budget_factor),
+           exploration_budget_factors_(exploration_budget_factors),
            enable_mip_starts_(enable_mip_starts),
            random_worker_initial_configs_(random_worker_initial_configs),
            mip_start_initial_config_policy_(mip_start_initial_config_policy),

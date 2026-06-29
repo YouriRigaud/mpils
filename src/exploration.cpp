@@ -17,6 +17,7 @@
 #include <string>
 #include <fstream>
 #include <filesystem>
+#include <algorithm>
 #include <optional>
 #include <random>
 
@@ -303,7 +304,9 @@ const Configuration& LocalSearchEngine::getInitialConfigurationForWorker(int wor
 }
 
 int Exploration::selectNumberOfEvaluations() {
-    return exploration_budget_factor_ * static_cast<int>(parameter_space_.getSelectedParameters().size());
+    int idx = std::min(iteration_ - 1, static_cast<int>(exploration_budget_factors_.size()) - 1);
+    int factor = exploration_budget_factors_[idx];
+    return factor * static_cast<int>(parameter_space_.getSelectedParameters().size());
 }
 
 ExplorationRunStats Exploration::run() {
