@@ -19,7 +19,7 @@ SRCS = $(wildcard $(SRC_DIR)/*.cpp)
 OBJS = $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/%.o,$(SRCS))
 TARGET = $(BUILD_DIR)/mpils
 
-#CPLEX_DIR = /home/yorig/CPLEX_Studio2212
+CPLEX_DIR = /home/yorig/CPLEX_Studio2212
 
 # MLPack
 mlpack_dir := /home/yorig/mlpack-4.6.2
@@ -40,8 +40,7 @@ LIB_DIRS = \
     -L$(CPLEX_DIR)/cplex/lib/x86-64_linux/static_pic \
     -L$(CPLEX_DIR)/concert/lib/x86-64_linux/static_pic
 
-LIBS = -lilocplex -lcplex -lconcert -lm -lpthread -larmadillo \
-       -lrt -lbz2 -ldl -lstdc++ -lopenblas -lgfortran -lz
+LIBS = -lilocplex -lcplex -lconcert -lm -lpthread -larmadillo
 
 ALLIANCE_INCLUDES = -I$(ensmallen_include) -I$(mlpack_include)
 ALLIANCE_LIBDIRS  = -L$(mlpack_lib)
